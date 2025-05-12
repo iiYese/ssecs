@@ -2,10 +2,10 @@ use crate::{entity::Entity, world::World};
 
 use linkme;
 
-type ComponentEntry = fn(world: &World);
+pub(crate) type ComponentEntry = fn(world: &World);
 
 #[linkme::distributed_slice]
-static COMPONENT_INIT_FNS: [ComponentEntry];
+pub(crate) static COMPONENT_INIT_FNS: [ComponentEntry];
 
 pub trait Component {
     fn id() -> Entity;
@@ -33,7 +33,6 @@ pub mod test {
         }
 
         fn init(_: &World) {
-            println!("player");
             // world.component_with_id::<Player>(Player::id())
         }
     }
@@ -49,7 +48,6 @@ pub mod test {
         }
 
         fn init(_: &World) {
-            println!("transform");
             // world.component_with_id::<Transform>(Transform::id())
         }
     }
@@ -65,19 +63,18 @@ pub mod test {
         }
 
         fn init(_: &World) {
-            println!("health");
             // world.component_with_id::<Health>(Health::id())
         }
     }
 
     #[test]
-    fn component_test() {
-        dbg!(Player::id());
-        dbg!(Transform::id());
-        dbg!(Health::id());
-
-        for func in COMPONENT_INIT_FNS {
-            func(&World {});
-        }
+    fn component_ids() {
+        let mut ids = vec![
+            Player::id().raw(),
+            Transform::id().raw(),
+            Health::id().raw(),
+        ];
+        ids.sort();
+        assert_eq!(ids, vec![0, 1, 2]);
     }
 }

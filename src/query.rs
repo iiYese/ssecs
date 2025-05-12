@@ -58,6 +58,7 @@ mod test {
             .with(Transform::id())
             .with(&Transform::id())
             .with(&[Transform::id()])
-            .with(&mut [Health::id()]);
+            .with(&mut Transform::id())
+            .with(&mut [Transform::id()]);
     }
 }
