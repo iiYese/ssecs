@@ -3,7 +3,8 @@ name = "ssecs"
 version = "0.1.0"
 edition = "2024"
 authors = ["iiYese iiyese@outlook.com"]
-description = "Simply Simple ECS"
+description = "Somewhat Simple ECS"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+linkme = "0.3.32"
