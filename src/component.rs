@@ -1,6 +1,6 @@
-use crate::{entity::Entity, world::World};
-
 use linkme;
+
+use crate::{entity::Entity, world::World};
 
 pub(crate) type ComponentEntry = fn(world: &World);
 

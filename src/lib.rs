@@ -1,3 +1,4 @@
+mod archetype;
 mod component;
 mod entity;
 mod query;
