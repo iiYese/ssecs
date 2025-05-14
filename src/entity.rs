@@ -1,4 +1,6 @@
-#[derive(Clone, Copy, Debug)]
+use crate::archetype::FieldId;
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Entity(pub(crate) u64);
 
 impl Entity {

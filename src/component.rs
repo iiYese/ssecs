@@ -1,71 +1,35 @@
 use linkme;
 
-use crate::{entity::Entity, world::World};
+use crate::{self as ssecs, entity::Entity, world::World};
+use ssecs_macros::*;
 
-pub(crate) type ComponentEntry = fn(world: &World);
+pub type ComponentEntry = fn(world: &World);
 
 #[linkme::distributed_slice]
-pub(crate) static COMPONENT_INIT_FNS: [ComponentEntry];
+pub static COMPONENT_ENTRIES: [ComponentEntry];
 
 pub trait Component {
     fn id() -> Entity;
     fn init(_: &World) {}
 }
 
+#[derive(Clone, Copy, Component)]
+pub struct ComponentInfo {
+    pub size: usize,
+}
+
 #[cfg(test)]
 pub mod test {
     use super::*;
 
+    #[derive(Component)]
     pub struct Player;
+
+    #[derive(Component)]
     pub struct Transform;
+
+    #[derive(Component)]
     pub struct Health;
-
-    use std::mem::size_of;
-
-    impl Component for Player {
-        fn id() -> Entity {
-            #[linkme::distributed_slice(COMPONENT_INIT_FNS)]
-            static ENTRY: ComponentEntry = Player::init;
-            Entity(
-                ((&raw const ENTRY as u64) - (COMPONENT_INIT_FNS[..].as_ptr() as u64))
-                    / size_of::<ComponentEntry>() as u64,
-            )
-        }
-
-        fn init(_: &World) {
-            // world.component_with_id::<Player>(Player::id())
-        }
-    }
-
-    impl Component for Transform {
-        fn id() -> Entity {
-            #[linkme::distributed_slice(COMPONENT_INIT_FNS)]
-            static ENTRY: ComponentEntry = Transform::init;
-            Entity(
-                ((&raw const ENTRY as u64) - (COMPONENT_INIT_FNS[..].as_ptr() as u64))
-                    / size_of::<ComponentEntry>() as u64,
-            )
-        }
-
-        fn init(_: &World) {
-            // world.component_with_id::<Transform>(Transform::id())
-        }
-    }
-
-    impl Component for Health {
-        fn id() -> Entity {
-            #[linkme::distributed_slice(COMPONENT_INIT_FNS)]
-            static ENTRY: ComponentEntry = Health::init;
-            Entity(
-                ((&raw const ENTRY as u64) - (COMPONENT_INIT_FNS[..].as_ptr() as u64))
-                    / size_of::<ComponentEntry>() as u64,
-            )
-        }
-
-        fn init(_: &World) {
-            // world.component_with_id::<Health>(Health::id())
-        }
-    }
 
     #[test]
     fn component_ids() {

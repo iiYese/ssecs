@@ -1,27 +1,34 @@
 use std::collections::HashMap;
 
 use derive_more::{Deref, DerefMut};
+use parking_lot::RwLock;
 
 use crate::entity::Entity;
 
 pub(crate) struct Archetype {
-    id: ArchetypeId,
-    fields: Vec<FieldId>,
-    entities: Vec<Entity>,
-    columns: Vec<Column>,
-    edges: HashMap<FieldId, ArchetypeEdge>,
+    pub fields: Vec<FieldId>,
+    pub entities: Vec<Entity>,
+    pub columns: Vec<RwLock<Column>>,
+    pub edges: HashMap<FieldId, ArchetypeEdge>,
 }
 
-#[derive(Deref, DerefMut)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ArchetypeId(pub u64);
 
 /// Component or pair
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct FieldId(pub u64);
+
+impl From<Entity> for FieldId {
+    fn from(entity: Entity) -> Self {
+        Self(entity.raw())
+    }
+}
 
 #[derive(Deref, DerefMut)]
 pub(crate) struct Column(pub Vec<u8>);
 
 pub(crate) struct ArchetypeEdge {
-    add: *mut Archetype,
-    remove: *mut Archetype,
+    add: ArchetypeId,
+    remove: ArchetypeId,
 }

@@ -1,11 +1,24 @@
 [package]
 name = "ssecs"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 authors = ["iiYese iiyese@outlook.com"]
 description = "Somewhat Simple ECS"
 license = "MIT OR Apache-2.0"
 
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+
+[workspace]
+members = ["macros"]
+
+[workspace.dependencies]
+ssecs-macros = { path = "macros" }
+
 [dependencies]
 linkme = "0.3.32"
+parking_lot = "0.12.3"
 derive_more = { version  = "2.0.1", features = ["deref", "deref_mut"] }
+ssecs-macros.workspace = true
+
