@@ -6,11 +6,12 @@ new_key_type! { pub struct Entity; }
 
 impl Entity {
     pub fn null() -> Self {
-        Self(KeyData::from_ffi(u64::MAX))
+        Self::default()
     }
 
     pub unsafe fn from_offset(val: u64) -> Self {
-        Self(KeyData::from_ffi(val))
+        // Slotmap IDs start from 1
+        Self(KeyData::from_ffi(1 + val))
     }
 
     pub fn raw(self) -> u64 {

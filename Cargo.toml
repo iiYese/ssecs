@@ -21,5 +21,6 @@ derive_more = { version  = "2.0.1", features = ["deref", "deref_mut"] }
 linkme = "0.3.32"
 parking_lot = "0.12.3"
 slotmap = "1.0.7"
+smallvec = "1.15.0"
 ssecs-macros.workspace = true
 

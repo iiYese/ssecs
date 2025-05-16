@@ -19,15 +19,17 @@ pub fn component_derive(input: TokenStream) -> TokenStream {
     let (impl_generics, type_generics, where_clause) = &ast.generics.split_for_impl();
 
     let output = quote! {
-        unsafe impl #impl_generics ssecs::component::Component for #struct_name #type_generics #where_clause  {
+        unsafe impl #impl_generics ssecs::component::Component for #struct_name #type_generics
+        #where_clause
+        {
             fn id() -> ssecs::entity::Entity {
                 #[linkme::distributed_slice(ssecs::component::COMPONENT_ENTRIES)]
                 static ENTRY: ssecs::component::ComponentEntry = #struct_name::init;
+                let begin = ssecs::component::COMPONENT_ENTRIES[..].as_ptr() as u64;
+                let end = &raw const ENTRY as u64;
                 unsafe {
                     ssecs::entity::Entity::from_offset(
-                        ((&raw const ENTRY as u64)
-                            - (ssecs::component::COMPONENT_ENTRIES[..].as_ptr() as u64))
-                                / size_of::<ssecs::component::ComponentEntry>() as u64,
+                        (end - begin) / size_of::<ssecs::component::ComponentEntry>() as u64,
                     )
                 }
             }

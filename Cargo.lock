@@ -155,6 +155,7 @@ dependencies = [
  "linkme",
  "parking_lot",
  "slotmap",
+ "smallvec",
  "ssecs-macros",
 ]
 
