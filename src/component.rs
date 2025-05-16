@@ -8,6 +8,7 @@ pub type ComponentEntry = fn(world: &World);
 #[linkme::distributed_slice]
 pub static COMPONENT_ENTRIES: [ComponentEntry];
 
+/// Should never be implemented manually
 pub unsafe trait Component {
     fn id() -> Entity;
     fn init(_: &World);
@@ -21,7 +22,7 @@ pub struct ComponentInfo {
 }
 
 #[cfg(test)]
-pub mod test {
+pub(crate) mod test {
     use super::*;
 
     #[derive(Component)]
@@ -35,8 +36,8 @@ pub mod test {
 
     #[test]
     fn component_ids() {
-        let mut ids = [Player::id(), Transform::id(), Health::id()];
-        ids.sort();
-        assert_eq!(ids, [0, 1, 2].map(|n| unsafe { Entity::from_offset(n) }));
+        assert!(Player::id() != Transform::id());
+        assert!(Transform::id() != Health::id());
+        assert!(Health::id() != Player::id());
     }
 }

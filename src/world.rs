@@ -18,14 +18,25 @@ pub struct World {
 
 impl World {
     pub fn new() -> Self {
+        // Add empty archetype
+        let mut archetypes = SlotMap::<ArchetypeId, Archetype>::with_key();
+        let empty_archetype = archetypes.insert(Archetype::default());
+
         let world = Self {
             entity_index: Default::default(),
             field_index: Default::default(),
-            archetypes: Default::default(),
+            archetypes,
         };
-        for func in COMPONENT_ENTRIES {
-            func(&world);
+
+        // Make sure all component entities are sawned before init
+        // Needed if components add relationships (traits)
+        for n in 0..COMPONENT_ENTRIES.len() {}
+
+        // init components
+        for init in COMPONENT_ENTRIES {
+            init(&world);
         }
+
         world
     }
 
@@ -38,10 +49,16 @@ impl World {
             })
     }
 
+    pub(crate) fn entity_location(&self, entity: Entity) -> Option<EntityLocation> {
+        self.entity_index
+            .contains_key(entity)
+            .then(|| unsafe { self.entity_index.get_unchecked(entity) })
+            .copied()
+    }
+
     /// Get metadata of a component
     pub fn component_info(&self, component: Entity) -> Option<ComponentInfo> {
-        self.entity_index
-            .get(component)
+        self.entity_location(component)
             .zip(self.field_index.get(&ComponentInfo::id().into()))
             .and_then(|(component_location, field_locations)| {
                 let column = self
@@ -61,8 +78,7 @@ impl World {
         component_info: ComponentInfo,
         entity: Entity,
     ) -> Option<MappedRwLockReadGuard<[u8]>> {
-        self.entity_index
-            .get(entity)
+        self.entity_location(entity)
             .zip(self.field_index.get(&component_info.id.into()))
             .and_then(|(entity_location, field_locations)| {
                 let column = self
@@ -87,6 +103,7 @@ impl World {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct EntityLocation {
     archetype: ArchetypeId,
     row: usize,

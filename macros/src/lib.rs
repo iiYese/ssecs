@@ -21,13 +21,13 @@ pub fn component_derive(input: TokenStream) -> TokenStream {
     let output = quote! {
         unsafe impl #impl_generics ssecs::component::Component for #struct_name #type_generics #where_clause  {
             fn id() -> ssecs::entity::Entity {
-                #[linkme::distributed_slice(COMPONENT_ENTRIES)]
-                static ENTRY: ComponentEntry = #struct_name::init;
+                #[linkme::distributed_slice(ssecs::component::COMPONENT_ENTRIES)]
+                static ENTRY: ssecs::component::ComponentEntry = #struct_name::init;
                 unsafe {
                     ssecs::entity::Entity::from_offset(
                         ((&raw const ENTRY as u64)
                             - (ssecs::component::COMPONENT_ENTRIES[..].as_ptr() as u64))
-                                / size_of::<ComponentEntry>() as u64,
+                                / size_of::<ssecs::component::ComponentEntry>() as u64,
                     )
                 }
             }
