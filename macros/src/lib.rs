@@ -19,7 +19,7 @@ pub fn component_derive(input: TokenStream) -> TokenStream {
     let (impl_generics, type_generics, where_clause) = &ast.generics.split_for_impl();
 
     let output = quote! {
-        impl #impl_generics ssecs::component::Component for #struct_name #type_generics #where_clause  {
+        unsafe impl #impl_generics ssecs::component::Component for #struct_name #type_generics #where_clause  {
             fn id() -> ssecs::entity::Entity {
                 #[linkme::distributed_slice(COMPONENT_ENTRIES)]
                 static ENTRY: ComponentEntry = #struct_name::init;

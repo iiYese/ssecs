@@ -8,7 +8,7 @@ pub type ComponentEntry = fn(world: &World);
 #[linkme::distributed_slice]
 pub static COMPONENT_ENTRIES: [ComponentEntry];
 
-pub trait Component {
+pub unsafe trait Component {
     fn id() -> Entity;
     fn init(_: &World);
     fn info() -> ComponentInfo;
