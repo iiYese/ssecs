@@ -17,8 +17,9 @@ members = ["macros"]
 ssecs-macros = { path = "macros" }
 
 [dependencies]
+derive_more = { version  = "2.0.1", features = ["deref", "deref_mut"] }
 linkme = "0.3.32"
 parking_lot = "0.12.3"
-derive_more = { version  = "2.0.1", features = ["deref", "deref_mut"] }
+slotmap = "1.0.7"
 ssecs-macros.workspace = true
 

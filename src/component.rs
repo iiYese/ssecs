@@ -10,12 +10,14 @@ pub static COMPONENT_ENTRIES: [ComponentEntry];
 
 pub trait Component {
     fn id() -> Entity;
-    fn init(_: &World) {}
+    fn init(_: &World);
+    fn info() -> ComponentInfo;
 }
 
 #[derive(Clone, Copy, Component)]
 pub struct ComponentInfo {
     pub size: usize,
+    pub id: Entity,
 }
 
 #[cfg(test)]
@@ -33,12 +35,8 @@ pub mod test {
 
     #[test]
     fn component_ids() {
-        let mut ids = vec![
-            Player::id().raw(),
-            Transform::id().raw(),
-            Health::id().raw(),
-        ];
+        let mut ids = [Player::id(), Transform::id(), Health::id()];
         ids.sort();
-        assert_eq!(ids, vec![0, 1, 2]);
+        assert_eq!(ids, [0, 1, 2].map(|n| unsafe { Entity::from_offset(n) }));
     }
 }

@@ -23,14 +23,24 @@ pub fn component_derive(input: TokenStream) -> TokenStream {
             fn id() -> ssecs::entity::Entity {
                 #[linkme::distributed_slice(COMPONENT_ENTRIES)]
                 static ENTRY: ComponentEntry = #struct_name::init;
-                Entity(
-                    ((&raw const ENTRY as u64) - (ssecs::component::COMPONENT_ENTRIES[..].as_ptr() as u64))
-                        / size_of::<ComponentEntry>() as u64,
-                )
+                unsafe {
+                    ssecs::entity::Entity::from_offset(
+                        ((&raw const ENTRY as u64)
+                            - (ssecs::component::COMPONENT_ENTRIES[..].as_ptr() as u64))
+                                / size_of::<ComponentEntry>() as u64,
+                    )
+                }
             }
 
             fn init(_: &ssecs::world::World) {
                 // world.component_with_id::<Player>(Player::id())
+            }
+
+            fn info() -> ssecs::component::ComponentInfo {
+                ssecs::component::ComponentInfo {
+                    size: std::mem::size_of::<#struct_name>(),
+                    id: #struct_name::id(),
+                }
             }
         }
     };
