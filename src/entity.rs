@@ -1,7 +1,5 @@
 use slotmap::{KeyData, new_key_type};
 
-use crate::archetype::FieldId;
-
 new_key_type! { pub struct Entity; }
 
 impl Entity {

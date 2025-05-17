@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use derive_more::{Deref, DerefMut};
 use parking_lot::RwLock;
 use slotmap::{KeyData, new_key_type};
 use smallvec::SmallVec;
@@ -39,27 +38,16 @@ pub(crate) struct ArchetypeEdge {
 
 #[derive(Debug, Default)]
 pub(crate) struct Archetype {
-    pub signature: ArchetypeType,
+    pub signature: Signature,
     pub entities: Vec<Entity>,
     pub columns: Vec<RwLock<Column>>,
     pub edges: HashMap<FieldId, ArchetypeEdge>,
 }
 
-impl From<ArchetypeType> for Archetype {
-    fn from(signature: ArchetypeType) -> Self {
-        Self {
-            signature,
-            entities: Default::default(),
-            columns: Default::default(),
-            edges: Default::default(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-pub(crate) struct ArchetypeType(SmallVec<[FieldId; ARCHETYPE_SAO]>);
+pub(crate) struct Signature(SmallVec<[FieldId; ARCHETYPE_SAO]>);
 
-impl ArchetypeType {
+impl Signature {
     pub fn new(fields: &[FieldId]) -> Self {
         let mut fields = SmallVec::from(fields);
         fields.sort();
@@ -88,11 +76,16 @@ impl ArchetypeType {
     pub fn iter(&self) -> impl Iterator<Item = &FieldId> {
         self.0.iter()
     }
+
+    pub fn intersection(&self, other: &Self) -> impl Iterator<Item = FieldId> {
+        todo!();
+        [].into_iter()
+    }
 }
 
 #[derive(Debug)]
 pub(crate) struct Column {
-    pub buffer: Vec<u8>,
+    buffer: Vec<u8>,
     chunk_size: usize,
 }
 
@@ -102,6 +95,10 @@ impl Column {
             buffer: Vec::new(),
             chunk_size,
         }
+    }
+
+    pub fn chunk_size(&self) -> usize {
+        self.chunk_size
     }
 
     pub fn get_chunk(&self, row: usize) -> &[u8] {
@@ -119,12 +116,21 @@ impl Column {
         self.buffer.extend_from_slice(bytes)
     }
 
-    pub fn remove_chunk(&mut self, row: usize) {
+    pub fn remove_chunk(&mut self, row: usize) -> impl Iterator<Item = u8> {
         if row < self.buffer.len() / self.chunk_size {
             let (left, right) = self.buffer.split_at_mut((row + 1) * self.chunk_size);
             let end_chunk_start = right.len() - self.chunk_size;
             left[row * self.chunk_size..].swap_with_slice(&mut right[end_chunk_start..]);
         }
-        self.buffer.drain(self.buffer.len() - self.chunk_size..);
+        self.buffer.drain(self.buffer.len() - self.chunk_size..)
+    }
+
+    pub fn extend_from_drained(&mut self, drained: impl Iterator<Item = u8>) {
+        self.buffer.extend(drained);
+        debug_assert!(self.buffer.len() % self.chunk_size == 0);
+    }
+
+    pub fn zero_fill(&mut self, target_chunks: usize) {
+        self.buffer.resize(target_chunks * self.chunk_size, 0);
     }
 }
