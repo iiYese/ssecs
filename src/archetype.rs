@@ -77,9 +77,33 @@ impl Signature {
         self.0.iter()
     }
 
-    pub fn intersection(&self, other: &Self) -> impl Iterator<Item = FieldId> {
-        todo!();
-        [].into_iter()
+    pub fn each_shared(&self, other: &Self, mut func: impl FnMut(usize, usize)) {
+        if self.0.is_empty() || other.0.is_empty() {
+            return;
+        }
+        let [mut n, mut m] = [0; 2];
+        while n < self.0.len() && self.0[n] < other.0[m] {
+            n += 1;
+        }
+        if n == self.0.len() {
+            return;
+        }
+        while m < other.0.len() && other.0[m] < self.0[n] {
+            m += 1;
+        }
+        if m == other.0.len() {
+            return;
+        }
+        while n < self.0.len() && m < other.0.len() {
+            if self.0[n] == other.0[m] {
+                func(n, m);
+            }
+            if self.0[n] < other.0[m] {
+                n += 1;
+            } else {
+                m += 1;
+            }
+        }
     }
 }
 
@@ -132,5 +156,9 @@ impl Column {
 
     pub fn zero_fill(&mut self, target_chunks: usize) {
         self.buffer.resize(target_chunks * self.chunk_size, 0);
+    }
+
+    pub fn truncate(&mut self, target_chunks: usize) {
+        self.buffer.truncate(target_chunks * self.chunk_size);
     }
 }

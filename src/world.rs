@@ -40,7 +40,10 @@ impl World {
             }
         }
 
-        let world = Self {
+        // Mangually create ComponentInfo archetype
+        let component_info_archetype_id = archetypes.insert(Archetype {});
+
+        let mut world = Self {
             archetypes,
             signature_index: HashMap::from([(Signature::default(), empty_archetype_id)]),
             entity_index: Mutex::new(entity_index),
@@ -51,8 +54,6 @@ impl World {
         for init in COMPONENT_ENTRIES {
             init(&world);
         }
-
-        todo!("Manually create ComponentInfo archetype");
 
         world
     }
@@ -89,31 +90,32 @@ impl World {
         if location.archetype == destination_id {
             return;
         }
-        let [current, destination] = self
+        let [old, new] = self //
             .archetypes
             .get_disjoint_mut([location.archetype, destination_id])
             .unwrap();
 
         // Move bytes from old columns to new columns
-        for (field, column) in current.signature.iter().zip(current.columns.iter()) {
-            let mut column = column.write();
-            let drained = column.remove_chunk(location.row);
-            // TODO: Replace with linear search of intersecting fields
-            if let Some(new_column) = self.field_index.get(field).unwrap().get(&destination_id) {
-                let mut new_column = destination.columns[**new_column].write();
-                new_column.extend_from_drained(drained);
-            }
-        }
+        old.signature.each_shared(&new.signature, |n, m| {
+            let mut old_column = old.columns[n].write();
+            let mut new_column = new.columns[m].write();
+            new_column.extend_from_drained(old_column.remove_chunk(location.row));
+        });
 
         // Move entity entry from old archetype to new archetype
         location.archetype = destination_id;
-        current.entities.remove(location.row); // TODO: use indices to optimize
-        location.row = destination.entities.len();
-        destination.entities.push(entity);
+        old.entities.remove(location.row); // TODO: use indices to optimize
+        location.row = new.entities.len();
+        new.entities.push(entity);
+
+        // Drop any unmoved bytes
+        for column in old.columns.iter() {
+            column.write().truncate(old.entities.len());
+        }
 
         // Zero init any columns that didn't have a value moved into them
-        for column in destination.columns.iter() {
-            column.write().zero_fill(destination.entities.len());
+        for column in new.columns.iter() {
+            column.write().zero_fill(new.entities.len());
         }
     }
 
@@ -140,10 +142,7 @@ impl World {
 
             // Populate field index with new archetype
             for (n, field) in signature.iter().enumerate() {
-                self.field_index
-                    .entry(*field)
-                    .or_default()
-                    .insert(id, ColumnIndex(n));
+                self.field_index.entry(*field).or_default().insert(id, ColumnIndex(n));
             }
 
             // Add missing edge connections
@@ -159,7 +158,7 @@ impl World {
     }
 
     pub fn has_component(&self, component: Entity, entity: Entity) -> bool {
-        self.entity_location(entity)
+        self.entity_location(entity) //
             .zip(self.field_index.get(&component.into()))
             .is_some_and(|(entity_location, field_locations)| {
                 field_locations.contains_key(&entity_location.archetype)
@@ -184,7 +183,7 @@ impl World {
 
     /// Get a component from an entity as type erased bytes
     pub fn get_bytes(&self, field: FieldId, entity: Entity) -> Option<MappedRwLockReadGuard<[u8]>> {
-        self.entity_location(entity)
+        self.entity_location(entity) //
             .zip(self.field_index.get(&field))
             .and_then(|(entity_location, field_locations)| {
                 let column = self
@@ -218,12 +217,8 @@ impl World {
         else {
             panic!("Entity does not exist");
         };
-        let current_signature = self
-            .archetypes
-            .get(entity_location.archetype)
-            .unwrap()
-            .signature
-            .clone();
+        let current_signature =
+            self.archetypes.get(entity_location.archetype).unwrap().signature.clone();
         let archetype_id = if current_signature.contains(C::id().into()) {
             entity_location.archetype
         } else if let Some(edge) = self
