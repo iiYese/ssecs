@@ -83,7 +83,7 @@ impl World {
         }
     }
 
-    /// Must ensure new columns in destination are correctly filled after being zero initialized
+    /// Must ensure new columns have placeholder zero bytes written into with valid bytes
     unsafe fn move_entity(&mut self, entity: Entity, destination_id: ArchetypeId) {
         let mut entity_index = self.entity_index.lock();
         let location = entity_index.get_mut(entity).unwrap();
