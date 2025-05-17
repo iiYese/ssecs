@@ -34,7 +34,7 @@ pub fn component_derive(input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn init(_: &ssecs::world::World) {
+            fn init(_: &mut ssecs::world::World) {
                 // world.component_with_id::<Player>(Player::id())
             }
 

@@ -1,11 +1,11 @@
 use std::{collections::HashMap, mem::size_of};
 
 use derive_more::{Deref, DerefMut};
-use parking_lot::{MappedMutexGuard, MappedRwLockReadGuard, Mutex, MutexGuard, RwLockReadGuard};
+use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
 use slotmap::SlotMap;
 
 use crate::{
-    archetype::{Archetype, ArchetypeEdge, ArchetypeId, FieldId, Signature},
+    archetype::{Archetype, ArchetypeEdge, ArchetypeId, Column, FieldId, Signature},
     component::{COMPONENT_ENTRIES, Component, ComponentInfo},
     entity::Entity,
 };
@@ -41,18 +41,34 @@ impl World {
         }
 
         // Mangually create ComponentInfo archetype
-        let component_info_archetype_id = archetypes.insert(Archetype {});
+        let component_info_signature = Signature::new(&[ComponentInfo::id().into()]);
+        let component_info_archetype_id = archetypes.insert(Archetype {
+            signature: component_info_signature.clone(),
+            entities: Default::default(),
+            columns: vec![RwLock::new(Column::new(size_of::<ComponentInfo>()))],
+            edges: HashMap::from([(
+                ComponentInfo::id().into(),
+                ArchetypeEdge {
+                    remove: empty_archetype_id,
+                    add: ArchetypeId::null(),
+                },
+            )]),
+        });
 
+        // Make world
         let mut world = Self {
             archetypes,
-            signature_index: HashMap::from([(Signature::default(), empty_archetype_id)]),
             entity_index: Mutex::new(entity_index),
             field_index: Default::default(),
+            signature_index: HashMap::from([
+                (Signature::default(), empty_archetype_id),
+                (component_info_signature, component_info_archetype_id),
+            ]),
         };
 
-        // init components
+        // Run component init
         for init in COMPONENT_ENTRIES {
-            init(&world);
+            init(&mut world);
         }
 
         world

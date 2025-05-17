@@ -3,7 +3,7 @@ use linkme;
 use crate::{self as ssecs, entity::Entity, world::World};
 use ssecs_macros::*;
 
-pub type ComponentEntry = fn(world: &World);
+pub type ComponentEntry = fn(world: &mut World);
 
 #[linkme::distributed_slice]
 pub static COMPONENT_ENTRIES: [ComponentEntry];
@@ -11,7 +11,7 @@ pub static COMPONENT_ENTRIES: [ComponentEntry];
 /// Should never be implemented manually
 pub unsafe trait Component {
     fn id() -> Entity;
-    fn init(_: &World);
+    fn init(_: &mut World); // TODO: Remove mut
     fn info() -> ComponentInfo;
 }
 

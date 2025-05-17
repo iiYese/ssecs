@@ -121,10 +121,6 @@ impl Column {
         }
     }
 
-    pub fn chunk_size(&self) -> usize {
-        self.chunk_size
-    }
-
     pub fn get_chunk(&self, row: usize) -> &[u8] {
         &self.buffer[row * self.chunk_size..][..self.chunk_size]
     }
