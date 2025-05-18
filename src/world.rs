@@ -29,7 +29,6 @@ impl World {
         // Make sure all component entities are sawned before init
         // Needed if components add relationships (traits)
         if let Some(empty_archetype) = archetypes.get_mut(empty_archetype_id) {
-            // Slotmap keys start from 1
             for n in 0..COMPONENT_ENTRIES.len() {
                 let id = entity_index.insert(EntityLocation {
                     archetype: empty_archetype_id,
@@ -149,7 +148,7 @@ impl World {
             // Crate columns & add type meta
             for field in signature.iter() {
                 // TODO: Check for pairs
-                todo!();
+                self.component_info(field.as_entity().unwrap());
             }
 
             // Create new archetype with signature
@@ -183,7 +182,10 @@ impl World {
 
     /// Get metadata of a component
     pub fn component_info(&self, component: Entity) -> Option<ComponentInfo> {
-        self.entity_location(component)
+        let entity_index = self.entity_index.lock();
+        entity_index
+            .contains_key(component)
+            .then(|| unsafe { entity_index.get_unchecked(component) })
             .zip(self.field_index.get(&ComponentInfo::id().into()))
             .and_then(|(component_location, field_locations)| {
                 let column = self

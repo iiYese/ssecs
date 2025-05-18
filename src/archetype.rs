@@ -30,6 +30,13 @@ impl From<Entity> for FieldId {
     }
 }
 
+impl FieldId {
+    // TODO: Check for pairs
+    pub(crate) fn as_entity(&self) -> Option<Entity> {
+        Some(Entity::from_ffi(self.0))
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct ArchetypeEdge {
     pub add: ArchetypeId,

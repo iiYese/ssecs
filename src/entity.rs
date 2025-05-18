@@ -15,4 +15,8 @@ impl Entity {
     pub fn raw(self) -> u64 {
         self.0.as_ffi()
     }
+
+    pub(crate) fn from_ffi(val: u64) -> Self {
+        Self(KeyData::from_ffi(val))
+    }
 }
