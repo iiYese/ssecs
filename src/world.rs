@@ -14,6 +14,19 @@ use crate::{
     entity::Entity,
 };
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct EntityLocation {
+    archetype: ArchetypeId,
+    row: usize,
+}
+
+#[derive(Deref, DerefMut, Default, Debug)]
+pub(crate) struct FieldLocations(HashMap<ArchetypeId, ColumnIndex>);
+
+#[derive(Clone, Copy, Deref, DerefMut, Debug)]
+pub(crate) struct ColumnIndex(pub usize);
+
+#[derive(Debug)]
 pub struct World {
     // Add read_index: SlotMap<Entity, EntityLocation> (a copy of entity_index) if this is too slow
     entity_index: Mutex<SlotMap<Entity, EntityLocation>>,
@@ -65,7 +78,13 @@ impl World {
         let mut world = Self {
             archetypes,
             entity_index: Mutex::new(entity_index),
-            field_index: Default::default(),
+            field_index: HashMap::from([(
+                ComponentInfo::id().into(),
+                FieldLocations(HashMap::from([(
+                    component_info_archetype_id,
+                    ColumnIndex(0),
+                )])),
+            )]),
             signature_index: HashMap::from([
                 (Signature::default(), empty_archetype_id),
                 (component_info_signature, component_info_archetype_id),
@@ -99,30 +118,38 @@ impl World {
     /// Must ensure new columns have placeholder zero bytes written into with valid bytes
     unsafe fn move_entity(&mut self, entity: Entity, destination_id: ArchetypeId) {
         let mut entity_index = self.entity_index.lock();
-        let location = &mut entity_index[entity];
-        if location.archetype == destination_id {
+        let old_location = entity_index[entity];
+        if old_location.archetype == destination_id {
             return;
         }
         let [old, new] = self //
             .archetypes
-            .get_disjoint_mut([location.archetype, destination_id])
+            .get_disjoint_mut([old_location.archetype, destination_id])
             .unwrap();
 
         // Move bytes from old columns to new columns
         old.signature.each_shared(&new.signature, |n, m| {
             let mut old_column = old.columns[n].write();
             let mut new_column = new.columns[m].write();
-            new_column.drain_into(&mut old_column, location.row);
+            new_column.drain_into(&mut old_column, old_location.row);
         });
 
         // Move entity entry from old archetype to new archetype
-        location.archetype = destination_id;
-        old.entities.remove(location.row); // TODO: use indices to optimize
-        location.row = new.entities.len();
+        old.entities.swap_remove(old_location.row);
         new.entities.push(entity);
+        entity_index[entity] = EntityLocation {
+            archetype: destination_id,
+            row: new.entities.len() - 1,
+        };
+
+        // Update location of swap_removed entity
+        if old_location.row < old.entities.len() {
+            entity_index[old.entities[old_location.row]].row = old_location.row;
+        }
 
         // Drop any unmoved bytes
         for column in old.columns.iter() {
+            // TODO: call drop fns
             column.write().truncate(old.entities.len());
         }
 
@@ -193,7 +220,8 @@ impl World {
                     .get(**field_locations.get(&component_location.archetype)?)?
                     .read();
                 let bytes = &column.get_chunk(component_location.row);
-                Some(unsafe { std::ptr::read(bytes.as_ptr() as *const ComponentInfo) })
+                let info = unsafe { std::ptr::read(bytes.as_ptr() as *const ComponentInfo) };
+                Some(info)
             })
     }
 
@@ -275,40 +303,39 @@ impl World {
         // Set zero'd bytes
         let entity_location = self.entity_location(entity).unwrap();
         let column = self.field_index[&C::id().into()][&entity_location.archetype];
+        let chunk = unsafe {
+            from_raw_parts(
+                (&component as *const C) as *const MaybeUninit<u8>,
+                size_of::<C>(),
+            )
+        };
         self.archetypes[archetype_id] //
             .columns[*column]
             .write()
-            .push_chunk(unsafe {
-                from_raw_parts(
-                    (&component as *const C) as *const MaybeUninit<u8>,
-                    size_of::<C>(),
-                )
-            });
+            .push_chunk(chunk);
         forget(component);
     }
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct EntityLocation {
-    archetype: ArchetypeId,
-    row: usize,
-}
-
-#[derive(Deref, DerefMut, Default)]
-pub(crate) struct FieldLocations(HashMap<ArchetypeId, ColumnIndex>);
-
-#[derive(Deref, DerefMut, Clone, Copy)]
-pub(crate) struct ColumnIndex(pub usize);
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate as ssecs;
+    use ssecs_macros::*;
+
+    #[derive(Component)]
+    struct Message(&'static str);
 
     #[test]
-    fn world_init() {
-        dbg!(ArchetypeId::default());
-        dbg!(ArchetypeId::null());
-        dbg!(u32::MAX);
-        World::new();
+    fn hello_world() {
+        let mut world = World::new();
+        let a = world.new_entity();
+        let b = world.new_entity();
+        println!("made the entities");
+        world.set_component(Message("Hello"), a);
+        world.set_component(Message("World"), b);
+        println!("set the components");
+        assert_eq!("Hello", world.get::<Message>(a).unwrap().0);
+        assert_eq!("World", world.get::<Message>(b).unwrap().0);
     }
 }
