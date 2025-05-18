@@ -71,7 +71,7 @@ impl Signature {
     }
 
     pub fn contains(&self, field: FieldId) -> bool {
-        self.0.contains(&field)
+        self.0.binary_search(&field).is_ok()
     }
 
     pub fn with(mut self, field: FieldId) -> Self {
