@@ -50,7 +50,7 @@ impl Query {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::component::{Component, test::*};
+    use crate::component::{Component, tests::*};
 
     #[test]
     fn query_compile() {

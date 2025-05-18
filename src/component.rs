@@ -24,7 +24,7 @@ pub struct ComponentInfo {
 }
 
 #[cfg(test)]
-pub(crate) mod test {
+pub(crate) mod tests {
     use super::*;
 
     #[derive(Component)]

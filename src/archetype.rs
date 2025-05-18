@@ -133,9 +133,15 @@ impl Column {
         &self.buffer[row * self.chunk_size..][..self.chunk_size]
     }
 
-    pub fn push_chunk(&mut self, bytes: &[MaybeUninit<u8>]) {
+    /*pub fn push_chunk(&mut self, bytes: &[MaybeUninit<u8>]) {
         debug_assert_eq!(bytes.len(), self.chunk_size);
         self.buffer.extend_from_slice(bytes)
+    }*/
+
+    pub fn insert_chunk(&mut self, row: usize, bytes: &[MaybeUninit<u8>]) {
+        debug_assert_eq!(bytes.len(), self.chunk_size);
+        debug_assert!(row < self.buffer.len() / self.chunk_size);
+        self.buffer[row * bytes.len()..].copy_from_slice(bytes);
     }
 
     pub fn drain_into(&mut self, other: &mut Self, row: usize) {

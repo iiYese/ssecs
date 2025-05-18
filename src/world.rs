@@ -128,40 +128,40 @@ impl World {
         if old_location.archetype == destination_id {
             return;
         }
-        let [old, new] = self //
+        let [old_archetype, new_archetype] = self //
             .archetypes
             .get_disjoint_mut([old_location.archetype, destination_id])
             .unwrap();
 
         // Move bytes from old columns to new columns
-        old.signature.each_shared(&new.signature, |n, m| {
-            let mut old_column = old.columns[n].write();
-            let mut new_column = new.columns[m].write();
+        old_archetype.signature.each_shared(&new_archetype.signature, |n, m| {
+            let mut old_column = old_archetype.columns[n].write();
+            let mut new_column = new_archetype.columns[m].write();
             new_column.drain_into(&mut old_column, old_location.row);
         });
 
         // Move entity entry from old archetype to new archetype
-        old.entities.swap_remove(old_location.row);
-        new.entities.push(entity);
+        old_archetype.entities.swap_remove(old_location.row);
+        new_archetype.entities.push(entity);
+
+        // Update entity locations
         entity_index[entity] = EntityLocation {
             archetype: destination_id,
-            row: new.entities.len() - 1,
+            row: new_archetype.entities.len() - 1,
         };
-
-        // Update location of swap_removed entity
-        if old_location.row < old.entities.len() {
-            entity_index[old.entities[old_location.row]].row = old_location.row;
+        if old_location.row < old_archetype.entities.len() {
+            entity_index[old_archetype.entities[old_location.row]].row = old_location.row;
         }
 
         // Drop any unmoved bytes
-        for column in old.columns.iter() {
+        for column in old_archetype.columns.iter() {
             // TODO: call drop fns
-            column.write().truncate(old.entities.len());
+            column.write().truncate(old_archetype.entities.len());
         }
 
         // Zero init any columns that didn't have a value moved into them
-        for column in new.columns.iter() {
-            column.write().zero_fill(new.entities.len());
+        for column in new_archetype.columns.iter() {
+            column.write().zero_fill(new_archetype.entities.len());
         }
     }
 
@@ -277,21 +277,21 @@ impl World {
     }
 
     pub fn set_component<C: Component>(&mut self, component: C, entity: Entity) {
-        let Some(entity_location) = self
+        let Some(current_location) = self
             .entity_location(entity)
             .filter(|location| location.archetype != ArchetypeId::null())
         else {
             panic!("Entity does not exist");
         };
         let current_signature = self //
-            .archetypes[entity_location.archetype]
+            .archetypes[current_location.archetype]
             .signature
             .clone();
         let archetype_id = if current_signature.contains(C::id().into()) {
-            entity_location.archetype
+            current_location.archetype
         } else if let Some(edge) = self
             .archetypes
-            .get(entity_location.archetype)
+            .get(current_location.archetype)
             .and_then(|archetype| archetype.edges.get(&C::id().into()))
             .map(|edge| edge.add)
             .filter(|archetype| *archetype != ArchetypeId::null())
@@ -307,8 +307,8 @@ impl World {
         };
 
         // Set zero'd bytes
-        let entity_location = self.entity_location(entity).unwrap();
-        let column = self.field_index[&C::id().into()][&entity_location.archetype];
+        let updated_location = self.entity_location(entity).unwrap();
+        let column = self.field_index[&C::id().into()][&updated_location.archetype];
         let chunk = unsafe {
             from_raw_parts(
                 (&component as *const C) as *const MaybeUninit<u8>,
@@ -318,7 +318,7 @@ impl World {
         self.archetypes[archetype_id] //
             .columns[*column]
             .write()
-            .push_chunk(chunk);
+            .insert_chunk(updated_location.row, chunk);
         forget(component);
     }
 }
@@ -327,6 +327,7 @@ impl World {
 mod tests {
     use super::*;
     use crate as ssecs;
+    use crate::component::tests::*;
     use ssecs_macros::*;
 
     #[derive(Component)]
@@ -335,10 +336,8 @@ mod tests {
     #[test]
     fn component_info() {
         let world = World::new();
-        assert_eq!(
-            world.component_info(ComponentInfo::id()),
-            Some(ComponentInfo::info())
-        );
+        assert_eq!(world.component_info(Player::id()), Some(Player::info()));
+        assert_eq!(world.component_info(Health::id()), Some(Health::info()));
         assert_eq!(world.component_info(Message::id()), Some(Message::info()));
     }
 
