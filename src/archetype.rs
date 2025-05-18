@@ -144,17 +144,26 @@ impl Column {
         self.buffer[row * bytes.len()..].copy_from_slice(bytes);
     }
 
-    pub fn drain_into(&mut self, other: &mut Self, row: usize) {
+    pub fn move_into(&mut self, other: &mut Self, row: usize) {
+        assert_eq!(self.chunk_size, other.chunk_size);
+        if self.chunk_size == 0 {
+            return;
+        }
+
+        // Swap with last
         if row < self.buffer.len() / self.chunk_size {
             let (left, right) = self.buffer.split_at_mut((row + 1) * self.chunk_size);
             let end_chunk_start = right.len() - self.chunk_size;
             left[row * self.chunk_size..].swap_with_slice(&mut right[end_chunk_start..]);
         }
 
-        for n in self.buffer.len().saturating_sub(self.chunk_size)..self.buffer.len() {
-            other.buffer.push(self.buffer[n]);
-        }
+        // Move last to other column
+        other.buffer.resize(other.buffer.len() + other.chunk_size, MaybeUninit::zeroed());
+        let n = self.buffer.len() - self.chunk_size;
+        let m = other.buffer.len() - other.chunk_size;
+        self.buffer[n..].swap_with_slice(&mut other.buffer[m..]);
 
+        // Remove bytes old bytes
         self.truncate(row);
     }
 

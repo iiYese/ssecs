@@ -37,16 +37,16 @@ pub struct World {
 
 impl World {
     pub fn new() -> Self {
-        // Add empty archetype
+        // Add empty archetype & component info archetype
         let mut archetypes = SlotMap::<ArchetypeId, Archetype>::with_key();
         let mut entity_index = SlotMap::<Entity, EntityLocation>::with_key();
         let empty_archetype_id = archetypes.insert(Archetype::default());
         let component_info_archetype_id = archetypes.insert(Archetype::default());
         assert_eq!(empty_archetype_id, ArchetypeId::empty_archetype());
 
-        // Make sure all component entities are sawned before init
-        // Needed if components add relationships (traits)
         if let Some(empty_archetype) = archetypes.get_mut(empty_archetype_id) {
+            // Make sure all component entities are sawned before init
+            // Needed if components add relationships (traits)
             for n in 0..COMPONENT_ENTRIES.len() {
                 let id = entity_index.insert(EntityLocation {
                     archetype: empty_archetype_id,
@@ -55,6 +55,7 @@ impl World {
                 assert_eq!(id, unsafe { Entity::from_offset(n as u64) });
                 empty_archetype.entities.push(id);
             }
+            // Add ComponentInfo edge
             let component_info_edge = &mut empty_archetype //
                 .edges
                 .entry(ComponentInfo::id().into())
@@ -137,7 +138,7 @@ impl World {
         old_archetype.signature.each_shared(&new_archetype.signature, |n, m| {
             let mut old_column = old_archetype.columns[n].write();
             let mut new_column = new_archetype.columns[m].write();
-            new_column.drain_into(&mut old_column, old_location.row);
+            old_column.move_into(&mut new_column, old_location.row);
         });
 
         // Move entity entry from old archetype to new archetype
