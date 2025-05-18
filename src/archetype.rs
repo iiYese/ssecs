@@ -1,6 +1,7 @@
 use std::{collections::HashMap, mem::MaybeUninit};
 
 use aligned_vec::{AVec, RuntimeAlign};
+use derive_more::{Deref, DerefMut};
 use parking_lot::RwLock;
 use slotmap::{KeyData, new_key_type};
 use smallvec::SmallVec;
@@ -43,6 +44,12 @@ pub(crate) struct ArchetypeEdge {
     pub add: ArchetypeId,
     pub remove: ArchetypeId,
 }
+
+#[derive(Clone, Copy, Deref, DerefMut, Debug)]
+pub(crate) struct ColumnIndex(pub usize);
+
+#[derive(Clone, Copy, Deref, DerefMut, Debug)]
+pub(crate) struct RowIndex(pub usize);
 
 #[derive(Debug, Default)]
 pub(crate) struct Archetype {
@@ -129,7 +136,7 @@ impl Column {
         }
     }
 
-    pub fn get_chunk(&self, row: usize) -> &[MaybeUninit<u8>] {
+    pub fn get_chunk(&self, RowIndex(row): RowIndex) -> &[MaybeUninit<u8>] {
         &self.buffer[row * self.chunk_size..][..self.chunk_size]
     }
 
@@ -138,7 +145,7 @@ impl Column {
         self.buffer.extend_from_slice(bytes)
     }*/
 
-    pub fn insert_chunk(&mut self, row: usize, bytes: &[MaybeUninit<u8>]) {
+    pub fn insert_chunk(&mut self, RowIndex(row): RowIndex, bytes: &[MaybeUninit<u8>]) {
         debug_assert_eq!(bytes.len(), self.chunk_size);
         if self.chunk_size == 0 {
             return;
@@ -147,17 +154,17 @@ impl Column {
         self.buffer[row * bytes.len()..].copy_from_slice(bytes);
     }
 
-    pub fn move_into(&mut self, other: &mut Self, row: usize) {
+    pub fn move_into(&mut self, other: &mut Self, RowIndex(row): RowIndex) {
         debug_assert_eq!(self.chunk_size, other.chunk_size);
         if self.chunk_size == 0 {
             return;
         }
 
         // Swap with last
-        if row < self.buffer.len() / self.chunk_size {
+        if row + 1 < self.buffer.len() / self.chunk_size {
             let (left, right) = self.buffer.split_at_mut((row + 1) * self.chunk_size);
-            let end_chunk_start = right.len() - self.chunk_size;
-            left[row * self.chunk_size..].swap_with_slice(&mut right[end_chunk_start..]);
+            let left = &mut left[row * self.chunk_size..];
+            left.swap_with_slice(right);
         }
 
         // Move last to other column
@@ -167,7 +174,7 @@ impl Column {
         self.buffer[n..].swap_with_slice(&mut other.buffer[m..]);
 
         // Remove bytes old bytes
-        self.truncate(row);
+        self.truncate(row + 1);
     }
 
     pub fn zero_fill(&mut self, target_chunks: usize) {

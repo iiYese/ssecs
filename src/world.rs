@@ -9,7 +9,10 @@ use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
 use slotmap::SlotMap;
 
 use crate::{
-    archetype::{Archetype, ArchetypeEdge, ArchetypeId, Column, FieldId, Signature},
+    NonZstOrPanic,
+    archetype::{
+        Archetype, ArchetypeEdge, ArchetypeId, Column, ColumnIndex, FieldId, RowIndex, Signature,
+    },
     component::{COMPONENT_ENTRIES, Component, ComponentInfo},
     entity::Entity,
 };
@@ -17,14 +20,11 @@ use crate::{
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct EntityLocation {
     archetype: ArchetypeId,
-    row: usize,
+    row: RowIndex,
 }
 
 #[derive(Deref, DerefMut, Default, Debug)]
 pub(crate) struct FieldLocations(HashMap<ArchetypeId, ColumnIndex>);
-
-#[derive(Clone, Copy, Deref, DerefMut, Debug)]
-pub(crate) struct ColumnIndex(pub usize);
 
 #[derive(Debug)]
 pub struct World {
@@ -50,7 +50,7 @@ impl World {
             for n in 0..COMPONENT_ENTRIES.len() {
                 let id = entity_index.insert(EntityLocation {
                     archetype: empty_archetype_id,
-                    row: n,
+                    row: RowIndex(n),
                 });
                 assert_eq!(id, unsafe { Entity::from_offset(n as u64) });
                 empty_archetype.entities.push(id);
@@ -142,16 +142,16 @@ impl World {
         });
 
         // Move entity entry from old archetype to new archetype
-        old_archetype.entities.swap_remove(old_location.row);
+        old_archetype.entities.swap_remove(*old_location.row);
         new_archetype.entities.push(entity);
 
         // Update entity locations
         entity_index[entity] = EntityLocation {
             archetype: destination_id,
-            row: new_archetype.entities.len() - 1,
+            row: RowIndex(new_archetype.entities.len() - 1),
         };
-        if old_location.row < old_archetype.entities.len() {
-            entity_index[old_archetype.entities[old_location.row]].row = old_location.row;
+        if *old_location.row < old_archetype.entities.len() {
+            entity_index[old_archetype.entities[*old_location.row]].row = old_location.row;
         }
 
         // Drop any unmoved bytes
@@ -254,6 +254,7 @@ impl World {
     }
 
     pub fn get<T: Component>(&self, entity: Entity) -> Option<MappedRwLockReadGuard<T>> {
+        let _ = T::NON_ZST_OR_PANIC;
         self.get_bytes(T::id().into(), entity).map(|bytes| {
             MappedRwLockReadGuard::map(bytes, |bytes| {
                 // SAFETY: Don't need to check TypeId because component's Entity id acts as TypeId
@@ -271,7 +272,7 @@ impl World {
         let empty_archetype = &mut self.archetypes[ArchetypeId::empty_archetype()];
         let new_entity = entity_index.insert(EntityLocation {
             archetype: ArchetypeId::empty_archetype(),
-            row: empty_archetype.entities.len(),
+            row: RowIndex(empty_archetype.entities.len()),
         });
         empty_archetype.entities.push(new_entity);
         new_entity
@@ -343,15 +344,23 @@ mod tests {
     }
 
     #[test]
+    fn zsts() {
+        let mut world = World::new();
+        let e = world.new_entity();
+        world.set_component(Player, e);
+        assert!(world.has_component(Player::id(), e));
+    }
+
+    #[test]
     fn hello_world() {
         let mut world = World::new();
         let a = world.new_entity();
         let b = world.new_entity();
         world.set_component(Message("Hello"), a);
         world.set_component(Message("World"), b);
+        assert!(world.has_component(Message::id(), a));
+        assert!(world.has_component(Message::id(), b));
         assert_eq!("Hello", world.get::<Message>(a).unwrap().0);
         assert_eq!("World", world.get::<Message>(b).unwrap().0);
-        world.set_component(Player, a);
-        assert_eq!("Hello", world.get::<Message>(a).unwrap().0);
     }
 }
