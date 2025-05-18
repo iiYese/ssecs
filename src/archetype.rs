@@ -140,12 +140,15 @@ impl Column {
 
     pub fn insert_chunk(&mut self, row: usize, bytes: &[MaybeUninit<u8>]) {
         debug_assert_eq!(bytes.len(), self.chunk_size);
+        if self.chunk_size == 0 {
+            return;
+        }
         debug_assert!(row < self.buffer.len() / self.chunk_size);
         self.buffer[row * bytes.len()..].copy_from_slice(bytes);
     }
 
     pub fn move_into(&mut self, other: &mut Self, row: usize) {
-        assert_eq!(self.chunk_size, other.chunk_size);
+        debug_assert_eq!(self.chunk_size, other.chunk_size);
         if self.chunk_size == 0 {
             return;
         }

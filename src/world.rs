@@ -351,5 +351,7 @@ mod tests {
         world.set_component(Message("World"), b);
         assert_eq!("Hello", world.get::<Message>(a).unwrap().0);
         assert_eq!("World", world.get::<Message>(b).unwrap().0);
+        world.set_component(Player, a);
+        assert_eq!("Hello", world.get::<Message>(a).unwrap().0);
     }
 }
