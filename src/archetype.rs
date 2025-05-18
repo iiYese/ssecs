@@ -163,8 +163,7 @@ impl Column {
         // Swap with last
         if row + 1 < self.buffer.len() / self.chunk_size {
             let (left, right) = self.buffer.split_at_mut((row + 1) * self.chunk_size);
-            let left = &mut left[row * self.chunk_size..];
-            left.swap_with_slice(right);
+            left[row * self.chunk_size..].swap_with_slice(right);
         }
 
         // Move last to other column
