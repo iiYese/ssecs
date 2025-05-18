@@ -73,15 +73,6 @@ impl World {
         world
     }
 
-    // TODO:
-    // - Make &self
-    // - Track entities temporarily & put them in the empty archetype before command flushes
-    pub fn spawn(&mut self) -> Entity {
-        // Create entity
-        // Put in empty archetype
-        todo!()
-    }
-
     fn connect_edges(&mut self, signature: Signature, id: ArchetypeId) {
         // Iter adjacent archetypes & connect
         for field in signature.iter() {
@@ -101,7 +92,7 @@ impl World {
     /// Must ensure new columns have placeholder zero bytes written into with valid bytes
     unsafe fn move_entity(&mut self, entity: Entity, destination_id: ArchetypeId) {
         let mut entity_index = self.entity_index.lock();
-        let location = entity_index.get_mut(entity).unwrap();
+        let location = &mut entity_index[entity];
         if location.archetype == destination_id {
             return;
         }
@@ -148,7 +139,9 @@ impl World {
             // Crate columns & add type meta
             for field in signature.iter() {
                 // TODO: Check for pairs
-                self.component_info(field.as_entity().unwrap());
+                new_archetype.columns.push(RwLock::new(Column::new(
+                    self.component_info(field.as_entity().unwrap()).unwrap().size,
+                )))
             }
 
             // Create new archetype with signature
@@ -227,6 +220,18 @@ impl World {
 
 // TODO: make everything pub(crate) & Replace with &self versions that enqueue commands
 impl World {
+    // TODO: Track entities temporarily & put them in the empty archetype before command flushes
+    pub fn new_entity(&mut self) -> Entity {
+        let mut entity_index = self.entity_index.lock();
+        let empty_archetype = &mut self.archetypes[ArchetypeId::empty_archetype()];
+        let new_entity = entity_index.insert(EntityLocation {
+            archetype: ArchetypeId::empty_archetype(),
+            row: empty_archetype.entities.len(),
+        });
+        empty_archetype.entities.push(new_entity);
+        new_entity
+    }
+
     pub fn set_component<C: Component>(&mut self, component: C, entity: Entity) {
         let Some(entity_location) = self
             .entity_location(entity)
@@ -234,8 +239,10 @@ impl World {
         else {
             panic!("Entity does not exist");
         };
-        let current_signature =
-            self.archetypes.get(entity_location.archetype).unwrap().signature.clone();
+        let current_signature = self //
+            .archetypes[entity_location.archetype]
+            .signature
+            .clone();
         let archetype_id = if current_signature.contains(C::id().into()) {
             entity_location.archetype
         } else if let Some(edge) = self
@@ -254,7 +261,14 @@ impl World {
             unsafe { self.move_entity(entity, new_archetyep_id) };
             new_archetyep_id
         };
-        todo!()
+
+        // Set zero'd bytes
+        let entity_location = self.entity_location(entity).unwrap();
+        let column = self.field_index[&C::id().into()][&entity_location.archetype];
+        self.archetypes[archetype_id] //
+            .columns[*column]
+            .write()
+            .push_chunk(component.as_bytes());
     }
 }
 
@@ -267,7 +281,7 @@ pub(crate) struct EntityLocation {
 #[derive(Deref, DerefMut, Default)]
 pub(crate) struct FieldLocations(HashMap<ArchetypeId, ColumnIndex>);
 
-#[derive(Deref, DerefMut)]
+#[derive(Deref, DerefMut, Clone, Copy)]
 pub(crate) struct ColumnIndex(pub usize);
 
 #[cfg(test)]
