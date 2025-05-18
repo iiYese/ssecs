@@ -17,6 +17,7 @@ pub unsafe trait Component {
 
 #[derive(Clone, Copy, Component)]
 pub struct ComponentInfo {
+    pub align: usize,
     pub size: usize,
     pub id: Entity,
 }

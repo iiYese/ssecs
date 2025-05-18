@@ -40,6 +40,7 @@ pub fn component_derive(input: TokenStream) -> TokenStream {
 
             fn info() -> ssecs::component::ComponentInfo {
                 ssecs::component::ComponentInfo {
+                    align: std::mem::align_of::<#struct_name>(),
                     size: std::mem::size_of::<#struct_name>(),
                     id: #struct_name::id(),
                 }

@@ -1,4 +1,8 @@
-use std::{collections::HashMap, mem::size_of};
+use std::{
+    collections::HashMap,
+    mem::{MaybeUninit, align_of, forget, size_of},
+    slice::from_raw_parts,
+};
 
 use derive_more::{Deref, DerefMut};
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
@@ -44,7 +48,10 @@ impl World {
         let component_info_archetype_id = archetypes.insert(Archetype {
             signature: component_info_signature.clone(),
             entities: Default::default(),
-            columns: vec![RwLock::new(Column::new(size_of::<ComponentInfo>()))],
+            columns: vec![RwLock::new(Column::new(
+                align_of::<ComponentInfo>(),
+                size_of::<ComponentInfo>(),
+            ))],
             edges: HashMap::from([(
                 ComponentInfo::id().into(),
                 ArchetypeEdge {
@@ -105,7 +112,7 @@ impl World {
         old.signature.each_shared(&new.signature, |n, m| {
             let mut old_column = old.columns[n].write();
             let mut new_column = new.columns[m].write();
-            new_column.extend_from_drained(old_column.remove_chunk(location.row));
+            new_column.drain_into(&mut old_column, location.row);
         });
 
         // Move entity entry from old archetype to new archetype
@@ -139,9 +146,8 @@ impl World {
             // Crate columns & add type meta
             for field in signature.iter() {
                 // TODO: Check for pairs
-                new_archetype.columns.push(RwLock::new(Column::new(
-                    self.component_info(field.as_entity().unwrap()).unwrap().size,
-                )))
+                let info = self.component_info(field.as_entity().unwrap()).unwrap();
+                new_archetype.columns.push(RwLock::new(Column::new(info.align, info.size)));
             }
 
             // Create new archetype with signature
@@ -192,7 +198,11 @@ impl World {
     }
 
     /// Get a component from an entity as type erased bytes
-    pub fn get_bytes(&self, field: FieldId, entity: Entity) -> Option<MappedRwLockReadGuard<[u8]>> {
+    pub fn get_bytes(
+        &self,
+        field: FieldId,
+        entity: Entity,
+    ) -> Option<MappedRwLockReadGuard<[MaybeUninit<u8>]>> {
         self.entity_location(entity) //
             .zip(self.field_index.get(&field))
             .and_then(|(entity_location, field_locations)| {
@@ -268,7 +278,13 @@ impl World {
         self.archetypes[archetype_id] //
             .columns[*column]
             .write()
-            .push_chunk(component.as_bytes());
+            .push_chunk(unsafe {
+                from_raw_parts(
+                    (&component as *const C) as *const MaybeUninit<u8>,
+                    size_of::<C>(),
+                )
+            });
+        forget(component);
     }
 }
 
