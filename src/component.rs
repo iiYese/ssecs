@@ -15,7 +15,7 @@ pub unsafe trait Component {
     fn info() -> ComponentInfo;
 }
 
-#[derive(Clone, Copy, Component, Debug)]
+#[derive(Clone, Copy, Component, Debug, PartialEq, Eq)]
 pub struct ComponentInfo {
     pub name: &'static str,
     pub align: usize,

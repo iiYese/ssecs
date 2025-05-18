@@ -1,7 +1,6 @@
 mod archetype;
 mod component;
 mod entity;
-mod meta_tags;
 mod query;
 mod world;
 

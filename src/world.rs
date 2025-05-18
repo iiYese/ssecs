@@ -41,6 +41,7 @@ impl World {
         let mut archetypes = SlotMap::<ArchetypeId, Archetype>::with_key();
         let mut entity_index = SlotMap::<Entity, EntityLocation>::with_key();
         let empty_archetype_id = archetypes.insert(Archetype::default());
+        let component_info_archetype_id = archetypes.insert(Archetype::default());
         assert_eq!(empty_archetype_id, ArchetypeId::empty_archetype());
 
         // Make sure all component entities are sawned before init
@@ -54,11 +55,16 @@ impl World {
                 assert_eq!(id, unsafe { Entity::from_offset(n as u64) });
                 empty_archetype.entities.push(id);
             }
+            let component_info_edge = &mut empty_archetype //
+                .edges
+                .entry(ComponentInfo::id().into())
+                .or_default();
+            component_info_edge.add = component_info_archetype_id;
         }
 
         // Mangually create ComponentInfo archetype
         let component_info_signature = Signature::new(&[ComponentInfo::id().into()]);
-        let component_info_archetype_id = archetypes.insert(Archetype {
+        archetypes[component_info_archetype_id] = Archetype {
             signature: component_info_signature.clone(),
             entities: Default::default(),
             columns: vec![RwLock::new(Column::new(
@@ -72,7 +78,7 @@ impl World {
                     add: ArchetypeId::null(),
                 },
             )]),
-        });
+        };
 
         // Make world
         let mut world = Self {
@@ -327,14 +333,22 @@ mod tests {
     struct Message(&'static str);
 
     #[test]
+    fn component_info() {
+        let world = World::new();
+        assert_eq!(
+            world.component_info(ComponentInfo::id()),
+            Some(ComponentInfo::info())
+        );
+        assert_eq!(world.component_info(Message::id()), Some(Message::info()));
+    }
+
+    #[test]
     fn hello_world() {
         let mut world = World::new();
         let a = world.new_entity();
         let b = world.new_entity();
-        println!("made the entities");
         world.set_component(Message("Hello"), a);
         world.set_component(Message("World"), b);
-        println!("set the components");
         assert_eq!("Hello", world.get::<Message>(a).unwrap().0);
         assert_eq!("World", world.get::<Message>(b).unwrap().0);
     }
