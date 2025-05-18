@@ -183,11 +183,10 @@ impl World {
     /// Get metadata of a component
     pub fn component_info(&self, component: Entity) -> Option<ComponentInfo> {
         let entity_index = self.entity_index.lock();
-        entity_index
-            .contains_key(component)
-            .then(|| unsafe { entity_index.get_unchecked(component) })
-            .zip(self.field_index.get(&ComponentInfo::id().into()))
-            .and_then(|(component_location, field_locations)| {
+        self.field_index
+            .get(&ComponentInfo::id().into())
+            .zip(entity_index.get_ignore_gen(component))
+            .and_then(|(field_locations, component_location)| {
                 let column = self
                     .archetypes
                     .get(component_location.archetype)?
