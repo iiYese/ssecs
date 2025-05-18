@@ -1,10 +1,6 @@
 use proc_macro::TokenStream;
-use proc_macro2::Span;
 use quote::quote;
-use syn::{
-    DeriveInput, Error, Ident, Meta, Result, Token, parse_macro_input, parse_quote,
-    punctuated::Punctuated,
-};
+use syn::{DeriveInput, parse_macro_input, parse_quote};
 
 #[proc_macro_derive(Component)]
 pub fn component_derive(input: TokenStream) -> TokenStream {
