@@ -316,14 +316,15 @@ impl World {
             new_archetyep_id
         };
 
-        // Set zero'd bytes
-        let updated_location = self.entity_location(entity).unwrap();
-        let column = self.field_index[&info.id.into()][&updated_location.archetype];
-        let chunk = unsafe { from_raw_parts(bytes.as_ptr(), info.size) };
-        self.archetypes[archetype_id] //
-            .columns[*column]
-            .write()
-            .insert_chunk(updated_location.row, chunk);
+        // SAFETY: Safe because we're only overwriting zero'd bytes
+        unsafe {
+            let updated_location = self.entity_location(entity).unwrap();
+            let column = self.field_index[&info.id.into()][&updated_location.archetype];
+            self.archetypes[archetype_id] //
+                .columns[*column]
+                .write()
+                .overwrite_last(bytes);
+        }
     }
 
     pub fn set_component<C: Component>(&mut self, component: C, entity: Entity) {

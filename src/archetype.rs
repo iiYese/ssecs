@@ -145,11 +145,13 @@ impl Column {
         self.buffer.extend_from_slice(bytes)
     }*/
 
-    pub fn insert_chunk(&mut self, RowIndex(row): RowIndex, bytes: &[MaybeUninit<u8>]) {
+    /// Must only be called on Zero bytes
+    pub unsafe fn overwrite_last(&mut self, bytes: &[MaybeUninit<u8>]) {
         debug_assert_eq!(bytes.len(), self.chunk_size);
         if self.chunk_size == 0 {
             return;
         }
+        let row = (self.buffer.len() / self.chunk_size) - 1;
         debug_assert!(row < self.buffer.len() / self.chunk_size);
         self.buffer[row * bytes.len()..].copy_from_slice(bytes);
     }
