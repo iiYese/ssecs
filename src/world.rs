@@ -284,6 +284,7 @@ impl World {
         bytes: &[MaybeUninit<u8>],
         entity: Entity,
     ) {
+        assert_eq!(info.size, bytes.len());
         let Some(current_location) = self
             .entity_location(entity)
             .filter(|location| location.archetype != ArchetypeId::null())
@@ -294,6 +295,8 @@ impl World {
             .archetypes[current_location.archetype]
             .signature
             .clone();
+
+        // Find destination archetype
         let archetype_id = if current_signature.contains(info.id.into()) {
             current_location.archetype
         } else if let Some(edge) = self
@@ -324,6 +327,7 @@ impl World {
     }
 
     pub fn set_component<C: Component>(&mut self, component: C, entity: Entity) {
+        // SAFETY: This is always safe because we are providing static type info
         unsafe {
             let bytes = from_raw_parts(
                 (&component as *const C) as *const MaybeUninit<u8>,
