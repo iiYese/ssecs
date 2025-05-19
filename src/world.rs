@@ -278,7 +278,12 @@ impl World {
         new_entity
     }
 
-    pub fn set_component<C: Component>(&mut self, component: C, entity: Entity) {
+    pub unsafe fn set_bytes(
+        &mut self,
+        info: ComponentInfo,
+        bytes: &[MaybeUninit<u8>],
+        entity: Entity,
+    ) {
         let Some(current_location) = self
             .entity_location(entity)
             .filter(|location| location.archetype != ArchetypeId::null())
@@ -289,12 +294,12 @@ impl World {
             .archetypes[current_location.archetype]
             .signature
             .clone();
-        let archetype_id = if current_signature.contains(C::id().into()) {
+        let archetype_id = if current_signature.contains(info.id.into()) {
             current_location.archetype
         } else if let Some(edge) = self
             .archetypes
             .get(current_location.archetype)
-            .and_then(|archetype| archetype.edges.get(&C::id().into()))
+            .and_then(|archetype| archetype.edges.get(&info.id.into()))
             .map(|edge| edge.add)
             .filter(|archetype| *archetype != ArchetypeId::null())
         {
@@ -302,7 +307,7 @@ impl World {
             unsafe { self.move_entity(entity, edge) };
             edge
         } else {
-            let new_archetyep_id = self.create_archetype(current_signature.with(C::id().into()));
+            let new_archetyep_id = self.create_archetype(current_signature.with(info.id.into()));
             // SAFETY: Columns are filled at end of call
             unsafe { self.move_entity(entity, new_archetyep_id) };
             new_archetyep_id
@@ -310,17 +315,22 @@ impl World {
 
         // Set zero'd bytes
         let updated_location = self.entity_location(entity).unwrap();
-        let column = self.field_index[&C::id().into()][&updated_location.archetype];
-        let chunk = unsafe {
-            from_raw_parts(
-                (&component as *const C) as *const MaybeUninit<u8>,
-                size_of::<C>(),
-            )
-        };
+        let column = self.field_index[&info.id.into()][&updated_location.archetype];
+        let chunk = unsafe { from_raw_parts(bytes.as_ptr(), info.size) };
         self.archetypes[archetype_id] //
             .columns[*column]
             .write()
             .insert_chunk(updated_location.row, chunk);
+    }
+
+    pub fn set_component<C: Component>(&mut self, component: C, entity: Entity) {
+        unsafe {
+            let bytes = from_raw_parts(
+                (&component as *const C) as *const MaybeUninit<u8>,
+                size_of::<C>(),
+            );
+            self.set_bytes(C::info(), bytes, entity);
+        }
         forget(component);
     }
 }
