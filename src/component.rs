@@ -17,10 +17,21 @@ pub unsafe trait Component {
 
 #[derive(Clone, Copy, Component, Debug, PartialEq, Eq)]
 pub struct ComponentInfo {
-    pub name: &'static str,
-    pub align: usize,
-    pub size: usize,
-    pub id: Entity,
+    pub(crate) name: &'static str,
+    pub(crate) align: usize,
+    pub(crate) size: usize,
+    pub(crate) id: Entity,
+}
+
+impl ComponentInfo {
+    pub unsafe fn new(name: &'static str, align: usize, size: usize, id: Entity) -> Self {
+        Self {
+            name,
+            align,
+            size,
+            id,
+        }
+    }
 }
 
 #[cfg(test)]
