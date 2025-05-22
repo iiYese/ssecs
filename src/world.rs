@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    mem::{MaybeUninit, align_of, forget, size_of},
+    mem::{MaybeUninit, forget, size_of},
     slice::from_raw_parts,
 };
 
@@ -68,10 +68,7 @@ impl World {
         archetypes[component_info_archetype_id] = Archetype {
             signature: component_info_signature.clone(),
             entities: Default::default(),
-            columns: vec![RwLock::new(Column::new(
-                align_of::<ComponentInfo>(),
-                size_of::<ComponentInfo>(),
-            ))],
+            columns: vec![RwLock::new(Column::new(ComponentInfo::info()))],
             edges: HashMap::from([(
                 ComponentInfo::id().into(),
                 ArchetypeEdge {
@@ -181,7 +178,7 @@ impl World {
             for field in signature.iter() {
                 // TODO: Check for pairs
                 let info = self.component_info(field.as_entity().unwrap()).unwrap();
-                new_archetype.columns.push(RwLock::new(Column::new(info.align, info.size)));
+                new_archetype.columns.push(RwLock::new(Column::new(info)));
             }
 
             // Create new archetype with signature

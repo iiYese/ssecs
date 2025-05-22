@@ -6,7 +6,7 @@ use parking_lot::RwLock;
 use slotmap::{KeyData, new_key_type};
 use smallvec::SmallVec;
 
-use crate::entity::Entity;
+use crate::{component::ComponentInfo, entity::Entity};
 
 const ARCHETYPE_SAO: usize = 8;
 
@@ -125,19 +125,19 @@ impl Signature {
 #[derive(Debug)]
 pub(crate) struct Column {
     buffer: AVec<MaybeUninit<u8>, RuntimeAlign>,
-    chunk_size: usize,
+    info: ComponentInfo,
 }
 
 impl Column {
-    pub fn new(align: usize, chunk_size: usize) -> Self {
+    pub fn new(component_info: ComponentInfo) -> Self {
         Self {
-            buffer: AVec::new(align),
-            chunk_size,
+            buffer: AVec::new(component_info.align),
+            info: component_info,
         }
     }
 
     pub fn get_chunk(&self, RowIndex(row): RowIndex) -> &[MaybeUninit<u8>] {
-        &self.buffer[row * self.chunk_size..][..self.chunk_size]
+        &self.buffer[row * self.info.size..][..self.info.size]
     }
 
     /*pub fn push_chunk(&mut self, bytes: &[MaybeUninit<u8>]) {
@@ -147,31 +147,31 @@ impl Column {
 
     /// Must only be called on Zero bytes
     pub unsafe fn overwrite_last(&mut self, bytes: &[MaybeUninit<u8>]) {
-        debug_assert_eq!(bytes.len(), self.chunk_size);
-        if self.chunk_size == 0 {
+        debug_assert_eq!(bytes.len(), self.info.size);
+        if self.info.size == 0 {
             return;
         }
-        let row = (self.buffer.len() / self.chunk_size) - 1;
-        debug_assert!(row < self.buffer.len() / self.chunk_size);
+        let row = (self.buffer.len() / self.info.size) - 1;
+        debug_assert!(row < self.buffer.len() / self.info.size);
         self.buffer[row * bytes.len()..].copy_from_slice(bytes);
     }
 
     pub fn move_into(&mut self, other: &mut Self, RowIndex(row): RowIndex) {
-        debug_assert_eq!(self.chunk_size, other.chunk_size);
-        if self.chunk_size == 0 {
+        debug_assert_eq!(self.info.size, other.info.size);
+        if self.info.size == 0 {
             return;
         }
 
         // Swap with last
-        if row + 1 < self.buffer.len() / self.chunk_size {
-            let (left, right) = self.buffer.split_at_mut((row + 1) * self.chunk_size);
-            left[row * self.chunk_size..].swap_with_slice(right);
+        if row + 1 < self.buffer.len() / self.info.size {
+            let (left, right) = self.buffer.split_at_mut((row + 1) * self.info.size);
+            left[row * self.info.size..].swap_with_slice(right);
         }
 
         // Move last to other column
-        other.buffer.resize(other.buffer.len() + other.chunk_size, MaybeUninit::zeroed());
-        let n = self.buffer.len() - self.chunk_size;
-        let m = other.buffer.len() - other.chunk_size;
+        other.buffer.resize(other.buffer.len() + other.info.size, MaybeUninit::zeroed());
+        let n = self.buffer.len() - self.info.size;
+        let m = other.buffer.len() - other.info.size;
         self.buffer[n..].swap_with_slice(&mut other.buffer[m..]);
 
         // Remove bytes old bytes
@@ -179,10 +179,21 @@ impl Column {
     }
 
     pub fn zero_fill(&mut self, target_chunks: usize) {
-        self.buffer.resize(target_chunks * self.chunk_size, MaybeUninit::zeroed());
+        self.buffer.resize(target_chunks * self.info.size, MaybeUninit::zeroed());
     }
 
     pub fn truncate(&mut self, target_chunks: usize) {
-        self.buffer.truncate(target_chunks * self.chunk_size);
+        self.buffer.truncate(target_chunks * self.info.size);
+    }
+}
+
+impl Drop for Column {
+    fn drop(&mut self) {
+        if self.info.size == 0 {
+            return;
+        }
+        for n in (0..self.buffer.len()).step_by(self.info.size) {
+            (self.info.drop)(&mut self.buffer[n..][..self.info.size])
+        }
     }
 }
