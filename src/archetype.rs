@@ -22,6 +22,26 @@ impl ArchetypeId {
     }
 }
 
+#[derive(Clone, Copy, Deref, DerefMut, Debug)]
+pub(crate) struct ColumnIndex(pub usize);
+
+#[derive(Clone, Copy, Deref, DerefMut, Debug)]
+pub(crate) struct RowIndex(pub usize);
+
+#[derive(Debug, Default)]
+pub(crate) struct Archetype {
+    pub signature: Signature,
+    pub entities: Vec<Entity>,
+    pub columns: Vec<RwLock<Column>>,
+    pub edges: HashMap<FieldId, ArchetypeEdge>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ArchetypeEdge {
+    pub add: ArchetypeId,
+    pub remove: ArchetypeId,
+}
+
 /// Component or pair
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FieldId(pub u64);
@@ -37,26 +57,6 @@ impl FieldId {
     pub(crate) fn as_entity(&self) -> Option<Entity> {
         Some(Entity::from_ffi(self.0))
     }
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct ArchetypeEdge {
-    pub add: ArchetypeId,
-    pub remove: ArchetypeId,
-}
-
-#[derive(Clone, Copy, Deref, DerefMut, Debug)]
-pub(crate) struct ColumnIndex(pub usize);
-
-#[derive(Clone, Copy, Deref, DerefMut, Debug)]
-pub(crate) struct RowIndex(pub usize);
-
-#[derive(Debug, Default)]
-pub(crate) struct Archetype {
-    pub signature: Signature,
-    pub entities: Vec<Entity>,
-    pub columns: Vec<RwLock<Column>>,
-    pub edges: HashMap<FieldId, ArchetypeEdge>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
