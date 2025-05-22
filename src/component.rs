@@ -15,7 +15,7 @@ pub unsafe trait Component {
     fn id() -> Entity;
     fn init(_: &mut World); // TODO: Remove mut
     fn info() -> ComponentInfo;
-    fn drop(bytes: &[MaybeUninit<u8>]);
+    fn drop(bytes: &mut [MaybeUninit<u8>]);
 }
 
 #[derive(Clone, Copy, Component, Debug, PartialEq, Eq)]
@@ -24,7 +24,7 @@ pub struct ComponentInfo {
     pub(crate) align: usize,
     pub(crate) size: usize,
     pub(crate) id: Entity,
-    pub(crate) drop: fn(&[MaybeUninit<u8>]),
+    pub(crate) drop: fn(&mut [MaybeUninit<u8>]),
 }
 
 impl ComponentInfo {
@@ -33,7 +33,7 @@ impl ComponentInfo {
         align: usize,
         size: usize,
         id: Entity,
-        drop: fn(&[MaybeUninit<u8>]),
+        drop: fn(&mut [MaybeUninit<u8>]),
     ) -> Self {
         Self {
             name,
