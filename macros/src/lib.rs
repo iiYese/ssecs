@@ -41,8 +41,13 @@ pub fn component_derive(input: TokenStream) -> TokenStream {
                         std::mem::align_of::<#struct_name>(),
                         std::mem::size_of::<#struct_name>(),
                         #struct_name::id(),
+                        #struct_name::drop,
                     )
                 }
+            }
+
+            fn drop(bytes: &[MaybeUninit<u8>]) {
+                unsafe { (bytes.as_ptr() as *mut #struct_name).drop_in_place() }
             }
         }
     };
