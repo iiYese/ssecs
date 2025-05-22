@@ -119,7 +119,7 @@ impl World {
         }
     }
 
-    /// Must ensure new columns have placeholder zero bytes written into with valid bytes
+    /// Must ensure missing entries in columns for new entity are filled
     unsafe fn move_entity(&mut self, entity: Entity, destination_id: ArchetypeId) {
         let mut entity_index = self.entity_index.lock();
         let old_location = entity_index[entity];
@@ -153,7 +153,6 @@ impl World {
 
         // Drop any unmoved bytes
         for column in old_archetype.columns.iter() {
-            // TODO: call drop fns
             column.write().truncate(old_archetype.entities.len());
         }
 
@@ -303,24 +302,27 @@ impl World {
             .map(|edge| edge.add)
             .filter(|archetype| *archetype != ArchetypeId::null())
         {
-            // SAFETY: Columns are filled at end of call
+            // SAFETY: New chunk is created for entity at end of call
             unsafe { self.move_entity(entity, edge) };
             edge
         } else {
             let new_archetyep_id = self.create_archetype(current_signature.with(info.id.into()));
-            // SAFETY: Columns are filled at end of call
+            // SAFETY: New chunk is created for entity at end of call
             unsafe { self.move_entity(entity, new_archetyep_id) };
             new_archetyep_id
         };
 
-        // SAFETY: Safe because we're only overwriting zero'd bytes
+        // SAFETY: Should be safe
+        //  - component info should match column component info
+        //  - should create a chunk corresponding to row if we moved to a new archetype
+        //  - write_into will call drop fn on old component value if we didn't move archetype
         unsafe {
             let updated_location = self.entity_location(entity).unwrap();
             let column = self.field_index[&info.id.into()][&updated_location.archetype];
             self.archetypes[archetype_id] //
                 .columns[*column]
                 .write()
-                .overwrite_last(bytes);
+                .write_into(updated_location.row, bytes);
         }
     }
 

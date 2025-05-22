@@ -136,28 +136,34 @@ impl Column {
         }
     }
 
+    pub fn no_chunks(&self) -> usize {
+        if self.info.size == 0 {
+            0
+        } else {
+            self.buffer.len() / self.info.size
+        }
+    }
+
     pub fn get_chunk(&self, RowIndex(row): RowIndex) -> &[MaybeUninit<u8>] {
         &self.buffer[row * self.info.size..][..self.info.size]
     }
 
-    /*pub fn push_chunk(&mut self, bytes: &[MaybeUninit<u8>]) {
-        debug_assert_eq!(bytes.len(), self.chunk_size);
-        self.buffer.extend_from_slice(bytes)
-    }*/
-
-    /// Must only be called on Zero bytes
-    pub unsafe fn overwrite_last(&mut self, bytes: &[MaybeUninit<u8>]) {
+    pub unsafe fn write_into(&mut self, RowIndex(row): RowIndex, bytes: &[MaybeUninit<u8>]) {
         debug_assert_eq!(bytes.len(), self.info.size);
         if self.info.size == 0 {
             return;
         }
-        let row = (self.buffer.len() / self.info.size) - 1;
-        debug_assert!(row < self.buffer.len() / self.info.size);
-        self.buffer[row * bytes.len()..].copy_from_slice(bytes);
+        if row < self.buffer.len() / self.info.size {
+            // SAFETY: Chunk is written into
+            unsafe { self.call_drop(RowIndex(row)) };
+            self.buffer[row * self.info.size..].copy_from_slice(bytes);
+        } else {
+            self.buffer.extend_from_slice(bytes);
+        }
     }
 
     pub fn move_into(&mut self, other: &mut Self, RowIndex(row): RowIndex) {
-        debug_assert_eq!(self.info.size, other.info.size);
+        debug_assert_eq!(self.info, other.info);
         if self.info.size == 0 {
             return;
         }
@@ -182,7 +188,16 @@ impl Column {
         self.buffer.resize(target_chunks * self.info.size, MaybeUninit::zeroed());
     }
 
+    // Must change length/overwrite bytes after call
+    unsafe fn call_drop(&mut self, RowIndex(row): RowIndex) {
+        (self.info.drop)(&mut self.buffer[row * self.info.size..][..self.info.size]);
+    }
+
     pub fn truncate(&mut self, target_chunks: usize) {
+        for n in (target_chunks..self.no_chunks()).skip(1) {
+            // SAFETY: Shrunk after loop
+            unsafe { self.call_drop(RowIndex(n)) };
+        }
         self.buffer.truncate(target_chunks * self.info.size);
     }
 }
