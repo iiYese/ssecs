@@ -13,10 +13,6 @@ const ARCHETYPE_SAO: usize = 8;
 new_key_type! { pub(crate) struct ArchetypeId; }
 
 impl ArchetypeId {
-    pub(crate) fn null() -> Self {
-        Self::default()
-    }
-
     pub(crate) fn empty_archetype() -> ArchetypeId {
         Self(KeyData::from_ffi(1))
     }
@@ -38,8 +34,8 @@ pub(crate) struct Archetype {
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct ArchetypeEdge {
-    pub add: ArchetypeId,
-    pub remove: ArchetypeId,
+    pub add: Option<ArchetypeId>,
+    pub remove: Option<ArchetypeId>,
 }
 
 /// Component or pair

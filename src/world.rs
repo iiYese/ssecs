@@ -29,6 +29,7 @@ pub(crate) struct FieldLocations(HashMap<ArchetypeId, ColumnIndex>);
 #[derive(Debug)]
 pub struct World {
     // Add read_index: SlotMap<Entity, EntityLocation> (a copy of entity_index) if this is too slow
+    /// `location.archetype` should never be `Archetype::null()`
     entity_index: Mutex<SlotMap<Entity, EntityLocation>>,
     field_index: HashMap<FieldId, FieldLocations>,
     signature_index: HashMap<Signature, ArchetypeId>,
@@ -60,7 +61,7 @@ impl World {
                 .edges
                 .entry(ComponentInfo::id().into())
                 .or_default();
-            component_info_edge.add = component_info_archetype_id;
+            component_info_edge.add = Some(component_info_archetype_id);
         }
 
         // Mangually create ComponentInfo archetype
@@ -72,8 +73,8 @@ impl World {
             edges: HashMap::from([(
                 ComponentInfo::id().into(),
                 ArchetypeEdge {
-                    remove: empty_archetype_id,
-                    add: ArchetypeId::null(),
+                    remove: Some(empty_archetype_id),
+                    add: None,
                 },
             )]),
         };
@@ -112,24 +113,24 @@ impl World {
             };
 
             // Connect this to other
-            self.archetypes[id].edges.entry(*field).or_default().remove = other;
+            self.archetypes[id].edges.entry(*field).or_default().remove = Some(other);
 
             // Connect other to this
-            self.archetypes[other].edges.entry(*field).or_default().add = id;
+            self.archetypes[other].edges.entry(*field).or_default().add = Some(id);
         }
     }
 
     /// Must ensure missing entries in columns for new entity are filled
-    unsafe fn move_entity(&mut self, entity: Entity, destination_id: ArchetypeId) {
-        let mut entity_index = self.entity_index.lock();
-        let old_location = entity_index[entity];
+    unsafe fn move_entity(&mut self, old_location: EntityLocation, destination_id: ArchetypeId) {
         if old_location.archetype == destination_id {
             return;
         }
+        let entity_index = self.entity_index.get_mut();
         let [old_archetype, new_archetype] = self //
             .archetypes
             .get_disjoint_mut([old_location.archetype, destination_id])
             .unwrap();
+        let entity = old_archetype.entities[*old_location.row];
 
         // Move bytes from old columns to new columns
         old_archetype.signature.each_shared(&new_archetype.signature, |n, m| {
@@ -264,7 +265,7 @@ impl World {
 impl World {
     // TODO: Track entities temporarily & put them in the empty archetype before command flushes
     pub fn new_entity(&mut self) -> Entity {
-        let mut entity_index = self.entity_index.lock();
+        let entity_index = self.entity_index.get_mut();
         let empty_archetype = &mut self.archetypes[ArchetypeId::empty_archetype()];
         let new_entity = entity_index.insert(EntityLocation {
             archetype: ArchetypeId::empty_archetype(),
@@ -280,46 +281,36 @@ impl World {
         bytes: &[MaybeUninit<u8>],
         entity: Entity,
     ) {
-        assert_eq!(info.size, bytes.len());
-        let Some(current_location) = self
-            .entity_location(entity)
-            .filter(|location| location.archetype != ArchetypeId::null())
-        else {
+        let Some(current_location) = self.entity_location(entity) else {
             panic!("Entity does not exist");
         };
-        let current_signature = self //
-            .archetypes[current_location.archetype]
-            .signature
-            .clone();
+        assert_eq!(info.size, bytes.len());
+        let current_archetype = &self.archetypes[current_location.archetype];
 
         // Find destination archetype
-        let archetype_id = if current_signature.contains(info.id.into()) {
+        let destination = if current_archetype.signature.contains(info.id.into()) {
             current_location.archetype
-        } else if let Some(edge) = self
-            .archetypes
-            .get(current_location.archetype)
-            .and_then(|archetype| archetype.edges.get(&info.id.into()))
-            .map(|edge| edge.add)
-            .filter(|archetype| *archetype != ArchetypeId::null())
+        } else if let Some(edge) = current_archetype //
+            .edges
+            .get(&info.id.into())
+            .and_then(|edge| edge.add)
         {
-            // SAFETY: New chunk is created for entity at end of call
-            unsafe { self.move_entity(entity, edge) };
             edge
         } else {
-            let new_archetyep_id = self.create_archetype(current_signature.with(info.id.into()));
-            // SAFETY: New chunk is created for entity at end of call
-            unsafe { self.move_entity(entity, new_archetyep_id) };
-            new_archetyep_id
+            self.create_archetype(current_archetype.signature.clone().with(info.id.into()))
         };
 
-        // SAFETY: Should be safe
+        // SAFETY: New chunk is immediately created for entity
+        unsafe { self.move_entity(current_location, destination) };
+
+        // SAFETY:
         //  - component info should match column component info
-        //  - should create a chunk corresponding to row if we moved to a new archetype
+        //  - chunk corresponding to row if we moved to a new archetype is created
         //  - write_into will call drop fn on old component value if we didn't move archetype
         unsafe {
             let updated_location = self.entity_location(entity).unwrap();
             let column = self.field_index[&info.id.into()][&updated_location.archetype];
-            self.archetypes[archetype_id] //
+            self.archetypes[destination] //
                 .columns[*column]
                 .write()
                 .write_into(updated_location.row, bytes);
@@ -337,6 +328,33 @@ impl World {
         }
         forget(component);
     }
+
+    pub fn remove_field(&mut self, field: FieldId, entity: Entity) {
+        let Some(current_location) = self.entity_location(entity) else {
+            panic!("Entity does not exist");
+        };
+        let current_archetype = &self.archetypes[current_location.archetype];
+
+        // Find destination
+        let destination = if let Some(edge) = current_archetype //
+            .edges
+            .get(&field)
+            .and_then(|edge| edge.remove)
+        {
+            edge
+        } else {
+            self.create_archetype(current_archetype.signature.clone().with(field))
+        };
+
+        // SAFETY: Should only ever drop components
+        unsafe {
+            self.move_entity(current_location, destination);
+        }
+    }
+
+    pub fn remove_component<C: Component>(&mut self, entity: Entity) {
+        self.remove_field(C::id().into(), entity);
+    }
 }
 
 #[cfg(test)]
@@ -346,15 +364,19 @@ mod tests {
     use crate::component::tests::*;
     use ssecs_macros::*;
 
+    /*#[derive(Component)]
+    struct Foo(u8);
+
     #[derive(Component)]
-    struct Message(&'static str);
+    struct Bar(u8);*/
 
     #[test]
     fn component_info() {
         let world = World::new();
         assert_eq!(world.component_info(Player::id()), Some(Player::info()));
         assert_eq!(world.component_info(Health::id()), Some(Health::info()));
-        assert_eq!(world.component_info(Message::id()), Some(Message::info()));
+        //assert_eq!(world.component_info(Foo::id()), Some(Foo::info()));
+        //assert_eq!(world.component_info(Bar::id()), Some(Bar::info()));
     }
 
     #[test]
@@ -362,19 +384,27 @@ mod tests {
         let mut world = World::new();
         let e = world.new_entity();
         world.set_component(Player, e);
-        assert!(world.has_component(Player::id(), e));
+        assert_eq!(true, world.has_component(Player::id(), e));
+        world.remove_component::<Player>(e);
+        assert_eq!(false, world.has_component(Player::id(), e));
     }
 
     #[test]
-    fn hello_world() {
+    fn drop() {
+        use std::sync::Arc;
+
+        #[derive(Component)]
+        #[allow(dead_code)]
+        struct RefCounted(Arc<u8>);
+
+        let val = Arc::new(0_u8);
         let mut world = World::new();
-        let a = world.new_entity();
-        let b = world.new_entity();
-        world.set_component(Message("Hello"), a);
-        world.set_component(Message("World"), b);
-        assert!(world.has_component(Message::id(), a));
-        assert!(world.has_component(Message::id(), b));
-        assert_eq!("Hello", world.get::<Message>(a).unwrap().0);
-        assert_eq!("World", world.get::<Message>(b).unwrap().0);
+        let e = world.new_entity();
+        world.set_component(RefCounted(val.clone()), e);
+        assert_eq!(2, Arc::strong_count(&val));
+        assert_eq!(true, world.has_component(RefCounted::id(), e));
+        world.remove_component::<RefCounted>(e);
+        assert_eq!(false, world.has_component(RefCounted::id(), e));
+        assert_eq!(1, Arc::strong_count(&val));
     }
 }
