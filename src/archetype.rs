@@ -149,7 +149,7 @@ impl Column {
         if self.info.size == 0 {
             return;
         }
-        if row < self.buffer.len() / self.info.size {
+        if row < self.no_chunks() {
             // SAFETY: Chunk is written into
             unsafe { self.call_drop(RowIndex(row)) };
             self.buffer[row * self.info.size..].copy_from_slice(bytes);
@@ -165,7 +165,7 @@ impl Column {
         }
 
         // Swap with last
-        if row + 1 < self.buffer.len() / self.info.size {
+        if row + 1 < self.no_chunks() {
             let (left, right) = self.buffer.split_at_mut((row + 1) * self.info.size);
             left[row * self.info.size..].swap_with_slice(right);
         }
@@ -177,20 +177,18 @@ impl Column {
         self.buffer[n..].swap_with_slice(&mut other.buffer[m..]);
 
         // Remove bytes old bytes
-        self.truncate(row + 1);
-    }
-
-    pub fn zero_fill(&mut self, target_chunks: usize) {
-        self.buffer.resize(target_chunks * self.info.size, MaybeUninit::zeroed());
+        self.buffer.truncate(n);
     }
 
     // Must change length/overwrite bytes after call
     unsafe fn call_drop(&mut self, RowIndex(row): RowIndex) {
+        let bytes = &mut self.buffer[row * self.info.size..][..self.info.size];
+        debug_assert_eq!(bytes.len(), self.info.size);
         (self.info.drop)(&mut self.buffer[row * self.info.size..][..self.info.size]);
     }
 
-    pub fn truncate(&mut self, target_chunks: usize) {
-        for n in (target_chunks..self.no_chunks()).skip(1) {
+    pub fn shrink_to_fit(&mut self, target_chunks: usize) {
+        for n in target_chunks..self.no_chunks() {
             // SAFETY: Shrunk after loop
             unsafe { self.call_drop(RowIndex(n)) };
         }

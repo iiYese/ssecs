@@ -53,7 +53,6 @@ impl World {
                     archetype: empty_archetype_id,
                     row: RowIndex(n),
                 });
-                assert_eq!(id, unsafe { Entity::from_offset(n as u64) });
                 empty_archetype.entities.push(id);
             }
             // Add ComponentInfo edge
@@ -154,12 +153,7 @@ impl World {
 
         // Drop any unmoved bytes
         for column in old_archetype.columns.iter() {
-            column.write().truncate(old_archetype.entities.len());
-        }
-
-        // Zero init any columns that didn't have a value moved into them
-        for column in new_archetype.columns.iter() {
-            column.write().zero_fill(new_archetype.entities.len());
+            column.write().shrink_to_fit(old_archetype.entities.len());
         }
     }
 
@@ -363,6 +357,11 @@ mod tests {
     use crate as ssecs;
     use crate::component::tests::*;
     use ssecs_macros::*;
+    use std::sync::Arc;
+
+    #[derive(Component)]
+    #[allow(dead_code)]
+    pub struct RefCounted(Arc<u8>);
 
     /*#[derive(Component)]
     struct Foo(u8);
@@ -373,8 +372,9 @@ mod tests {
     #[test]
     fn component_info() {
         let world = World::new();
-        assert_eq!(world.component_info(Player::id()), Some(Player::info()));
-        assert_eq!(world.component_info(Health::id()), Some(Health::info()));
+        for info in [ComponentInfo::info(), Player::info(), Health::info()] {
+            assert_eq!(world.component_info(info.id), Some(info));
+        }
         //assert_eq!(world.component_info(Foo::id()), Some(Foo::info()));
         //assert_eq!(world.component_info(Bar::id()), Some(Bar::info()));
     }
@@ -391,12 +391,6 @@ mod tests {
 
     #[test]
     fn drop() {
-        use std::sync::Arc;
-
-        #[derive(Component)]
-        #[allow(dead_code)]
-        struct RefCounted(Arc<u8>);
-
         let val = Arc::new(0_u8);
         let mut world = World::new();
         let e = world.new_entity();
