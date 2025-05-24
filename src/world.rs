@@ -103,22 +103,6 @@ impl World {
         world
     }
 
-    fn connect_edges(&mut self, signature: Signature, id: ArchetypeId) {
-        // Iter adjacent archetypes & connect
-        for field in signature.iter() {
-            let without_field = signature.clone().without(*field);
-            let Some(other) = self.signature_index.get(&without_field).copied() else {
-                continue;
-            };
-
-            // Connect this to other
-            self.archetypes[id].edges.entry(*field).or_default().remove = Some(other);
-
-            // Connect other to this
-            self.archetypes[other].edges.entry(*field).or_default().add = Some(id);
-        }
-    }
-
     /// Must ensure missing entries in columns for new entity are filled
     unsafe fn move_entity(&mut self, old_location: EntityLocation, destination_id: ArchetypeId) {
         if old_location.archetype == destination_id {
@@ -129,7 +113,10 @@ impl World {
             .archetypes
             .get_disjoint_mut([old_location.archetype, destination_id])
             .unwrap();
-        let entity = old_archetype.entities[*old_location.row];
+
+        // Move entity entry from old archetype to new archetype
+        let entity = old_archetype.entities.swap_remove(*old_location.row);
+        new_archetype.entities.push(entity);
 
         // Move bytes from old columns to new columns
         old_archetype.signature.each_shared(&new_archetype.signature, |n, m| {
@@ -137,10 +124,6 @@ impl World {
             let mut new_column = new_archetype.columns[m].write();
             old_column.move_into(&mut new_column, old_location.row);
         });
-
-        // Move entity entry from old archetype to new archetype
-        old_archetype.entities.swap_remove(*old_location.row);
-        new_archetype.entities.push(entity);
 
         // Update entity locations
         entity_index[entity] = EntityLocation {
@@ -154,6 +137,22 @@ impl World {
         // Drop any unmoved bytes
         for column in old_archetype.columns.iter() {
             column.write().shrink_to_fit(old_archetype.entities.len());
+        }
+    }
+
+    fn connect_edges(&mut self, signature: Signature, id: ArchetypeId) {
+        // Iter adjacent archetypes & connect
+        for field in signature.iter() {
+            let without_field = signature.clone().without(*field);
+            let Some(other) = self.signature_index.get(&without_field).copied() else {
+                continue;
+            };
+
+            // Connect this to other
+            self.archetypes[id].edges.entry(*field).or_default().remove = Some(other);
+
+            // Connect other to this
+            self.archetypes[other].edges.entry(*field).or_default().add = Some(id);
         }
     }
 
@@ -337,7 +336,7 @@ impl World {
         {
             edge
         } else {
-            self.create_archetype(current_archetype.signature.clone().with(field))
+            self.create_archetype(current_archetype.signature.clone().without(field))
         };
 
         // SAFETY: Should only ever drop components
@@ -363,20 +362,25 @@ mod tests {
     #[allow(dead_code)]
     pub struct RefCounted(Arc<u8>);
 
-    /*#[derive(Component)]
+    #[derive(Component)]
     struct Foo(u8);
 
     #[derive(Component)]
-    struct Bar(u8);*/
+    struct Bar(u8);
 
     #[test]
     fn component_info() {
         let world = World::new();
-        for info in [ComponentInfo::info(), Player::info(), Health::info()] {
+        for info in [
+            ComponentInfo::info(),
+            Player::info(),
+            Health::info(),
+            Transform::info(),
+            Foo::info(),
+            Bar::info(),
+        ] {
             assert_eq!(world.component_info(info.id), Some(info));
         }
-        //assert_eq!(world.component_info(Foo::id()), Some(Foo::info()));
-        //assert_eq!(world.component_info(Bar::id()), Some(Bar::info()));
     }
 
     #[test]
@@ -387,6 +391,27 @@ mod tests {
         assert_eq!(true, world.has_component(Player::id(), e));
         world.remove_component::<Player>(e);
         assert_eq!(false, world.has_component(Player::id(), e));
+    }
+
+    #[test]
+    fn set_remove() {
+        let mut world = World::new();
+        let e = world.new_entity();
+        world.set_component(Foo(0), e);
+        assert_eq!(true, world.has_component(Foo::id(), e));
+        assert_eq!(0, world.get::<Foo>(e).unwrap().0);
+
+        world.set_component(Bar(1), e);
+        assert_eq!(true, world.has_component(Foo::id(), e));
+        assert_eq!(0, world.get::<Foo>(e).unwrap().0);
+        assert_eq!(true, world.has_component(Bar::id(), e));
+        assert_eq!(1, world.get::<Bar>(e).unwrap().0);
+
+        world.remove_component::<Foo>(e);
+        assert_eq!(false, world.has_component(Foo::id(), e));
+        assert!(world.get::<Foo>(e).is_none());
+        assert_eq!(true, world.has_component(Bar::id(), e));
+        assert_eq!(1, world.get::<Bar>(e).unwrap().0);
     }
 
     #[test]
