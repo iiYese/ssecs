@@ -170,7 +170,7 @@ impl World {
             // Crate columns & add type meta
             for field in signature.iter() {
                 // TODO: Check for pairs
-                let info = self.component_info(field.as_entity().unwrap()).unwrap();
+                let info = self.component_info_non_locking(field.as_entity().unwrap()).unwrap();
                 new_archetype.columns.push(RwLock::new(Column::new(info)));
             }
 
@@ -190,8 +190,13 @@ impl World {
         }
     }
 
-    pub(crate) fn entity_location(&self, entity: Entity) -> Option<EntityLocation> {
+    fn entity_location(&self, entity: Entity) -> Option<EntityLocation> {
         let entity_index = self.entity_index.lock();
+        entity_index.get(entity).copied()
+    }
+
+    fn entity_location_non_locking(&mut self, entity: Entity) -> Option<EntityLocation> {
+        let entity_index = self.entity_index.get_mut();
         entity_index.get(entity).copied()
     }
 
@@ -200,6 +205,24 @@ impl World {
             .zip(self.field_index.get(&component.into()))
             .is_some_and(|(entity_location, field_locations)| {
                 field_locations.contains_key(&entity_location.archetype)
+            })
+    }
+
+    fn component_info_non_locking(&mut self, component: Entity) -> Option<ComponentInfo> {
+        let entity_index = self.entity_index.get_mut();
+        self.field_index
+            .get(&ComponentInfo::id().into())
+            .zip(entity_index.get_ignore_gen(component))
+            .and_then(|(field_locations, component_location)| {
+                let column = self
+                    .archetypes
+                    .get(component_location.archetype)?
+                    .columns
+                    .get(**field_locations.get(&component_location.archetype)?)?
+                    .read();
+                let bytes = &column.get_chunk(component_location.row);
+                let info = unsafe { std::ptr::read(bytes.as_ptr() as *const ComponentInfo) };
+                Some(info)
             })
     }
 
@@ -274,7 +297,7 @@ impl World {
         bytes: &[MaybeUninit<u8>],
         entity: Entity,
     ) {
-        let Some(current_location) = self.entity_location(entity) else {
+        let Some(current_location) = self.entity_location_non_locking(entity) else {
             panic!("Entity does not exist");
         };
         assert_eq!(info.size, bytes.len());
@@ -301,7 +324,7 @@ impl World {
         //  - chunk corresponding to row if we moved to a new archetype is created
         //  - write_into will call drop fn on old component value if we didn't move archetype
         unsafe {
-            let updated_location = self.entity_location(entity).unwrap();
+            let updated_location = self.entity_location_non_locking(entity).unwrap();
             let column = self.field_index[&info.id.into()][&updated_location.archetype];
             self.archetypes[destination] //
                 .columns[*column]
@@ -323,7 +346,7 @@ impl World {
     }
 
     pub fn remove_field(&mut self, field: FieldId, entity: Entity) {
-        let Some(current_location) = self.entity_location(entity) else {
+        let Some(current_location) = self.entity_location_non_locking(entity) else {
             panic!("Entity does not exist");
         };
         let current_archetype = &self.archetypes[current_location.archetype];
