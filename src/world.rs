@@ -103,7 +103,7 @@ impl World {
         world
     }
 
-    /// Must ensure missing entries in columns for new entity are filled
+    /// Must ensure missing entries in columns for entity are filled
     unsafe fn move_entity(&mut self, old_location: EntityLocation, destination_id: ArchetypeId) {
         if old_location.archetype == destination_id {
             return;
