@@ -1,15 +1,10 @@
-use std::{
-    collections::HashMap,
-    mem::{MaybeUninit, forget, size_of},
-    slice::from_raw_parts,
-};
+use std::{collections::HashMap, mem::MaybeUninit};
 
 use derive_more::{Deref, DerefMut};
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
 use slotmap::SlotMap;
 
 use crate::{
-    NonZstOrPanic,
     archetype::{
         Archetype, ArchetypeEdge, ArchetypeId, Column, ColumnIndex, FieldId, RowIndex, Signature,
     },
@@ -27,7 +22,7 @@ pub(crate) struct EntityLocation {
 pub(crate) struct FieldLocations(HashMap<ArchetypeId, ColumnIndex>);
 
 #[derive(Debug)]
-pub struct World {
+pub(crate) struct Core {
     // Add read_index: SlotMap<Entity, EntityLocation> (a copy of entity_index) if this is too slow
     /// `location.archetype` should never be `Archetype::null()`
     entity_index: Mutex<SlotMap<Entity, EntityLocation>>,
@@ -36,7 +31,7 @@ pub struct World {
     archetypes: SlotMap<ArchetypeId, Archetype>,
 }
 
-impl World {
+impl Core {
     pub fn new() -> Self {
         // Add empty archetype & component info archetype
         let mut archetypes = SlotMap::<ArchetypeId, Archetype>::with_key();
@@ -78,8 +73,7 @@ impl World {
             )]),
         };
 
-        // Make world
-        let mut world = Self {
+        Self {
             archetypes,
             entity_index: Mutex::new(entity_index),
             field_index: HashMap::from([(
@@ -93,14 +87,7 @@ impl World {
                 (Signature::default(), empty_archetype_id),
                 (component_info_signature, component_info_archetype_id),
             ]),
-        };
-
-        // Run component init
-        for init in COMPONENT_ENTRIES {
-            init(&mut world);
         }
-
-        world
     }
 
     /// Must ensure missing entries in columns for entity are filled
@@ -156,7 +143,7 @@ impl World {
         }
     }
 
-    pub(crate) fn create_archetype(&mut self, signature: Signature) -> ArchetypeId {
+    fn create_archetype(&mut self, signature: Signature) -> ArchetypeId {
         if let Some(id) = self.signature_index.get(&signature) {
             *id
         } else {
@@ -170,7 +157,7 @@ impl World {
             // Crate columns & add type meta
             for field in signature.iter() {
                 // TODO: Check for pairs
-                let info = self.component_info_non_locking(field.as_entity().unwrap()).unwrap();
+                let info = self.component_info(field.as_entity().unwrap()).unwrap();
                 new_archetype.columns.push(RwLock::new(Column::new(info)));
             }
 
@@ -190,32 +177,35 @@ impl World {
         }
     }
 
-    fn entity_location(&self, entity: Entity) -> Option<EntityLocation> {
+    fn entity_location_locking(&self, entity: Entity) -> Option<EntityLocation> {
         let entity_index = self.entity_index.lock();
         entity_index.get(entity).copied()
     }
 
-    fn entity_location_non_locking(&mut self, entity: Entity) -> Option<EntityLocation> {
+    fn entity_location(&mut self, entity: Entity) -> Option<EntityLocation> {
         let entity_index = self.entity_index.get_mut();
         entity_index.get(entity).copied()
     }
 
     pub fn has_component(&self, component: Entity, entity: Entity) -> bool {
-        self.entity_location(entity) //
+        self.entity_location_locking(entity) //
             .zip(self.field_index.get(&component.into()))
             .is_some_and(|(entity_location, field_locations)| {
                 field_locations.contains_key(&entity_location.archetype)
             })
     }
 
-    fn component_info_non_locking(&mut self, component: Entity) -> Option<ComponentInfo> {
-        let entity_index = self.entity_index.get_mut();
-        self.field_index
+    fn get_component_info(
+        entity_index: &SlotMap<Entity, EntityLocation>,
+        field_index: &HashMap<FieldId, FieldLocations>,
+        archetypes: &SlotMap<ArchetypeId, Archetype>,
+        component: Entity,
+    ) -> Option<ComponentInfo> {
+        field_index
             .get(&ComponentInfo::id().into())
             .zip(entity_index.get_ignore_gen(component))
             .and_then(|(field_locations, component_location)| {
-                let column = self
-                    .archetypes
+                let column = archetypes
                     .get(component_location.archetype)?
                     .columns
                     .get(**field_locations.get(&component_location.archetype)?)?
@@ -227,22 +217,18 @@ impl World {
     }
 
     /// Get metadata of a component
-    pub fn component_info(&self, component: Entity) -> Option<ComponentInfo> {
+    fn component_info(&mut self, component: Entity) -> Option<ComponentInfo> {
+        let entity_index = self.entity_index.get_mut();
+        let field_index = &self.field_index;
+        let archetypes = &self.archetypes;
+        Self::get_component_info(entity_index, field_index, archetypes, component)
+    }
+
+    pub fn component_info_locking(&self, component: Entity) -> Option<ComponentInfo> {
         let entity_index = self.entity_index.lock();
-        self.field_index
-            .get(&ComponentInfo::id().into())
-            .zip(entity_index.get_ignore_gen(component))
-            .and_then(|(field_locations, component_location)| {
-                let column = self
-                    .archetypes
-                    .get(component_location.archetype)?
-                    .columns
-                    .get(**field_locations.get(&component_location.archetype)?)?
-                    .read();
-                let bytes = &column.get_chunk(component_location.row);
-                let info = unsafe { std::ptr::read(bytes.as_ptr() as *const ComponentInfo) };
-                Some(info)
-            })
+        let field_index = &self.field_index;
+        let archetypes = &self.archetypes;
+        Self::get_component_info(&entity_index, field_index, archetypes, component)
     }
 
     /// Get a component from an entity as type erased bytes
@@ -251,7 +237,7 @@ impl World {
         field: FieldId,
         entity: Entity,
     ) -> Option<MappedRwLockReadGuard<[MaybeUninit<u8>]>> {
-        self.entity_location(entity) //
+        self.entity_location_locking(entity) //
             .zip(self.field_index.get(&field))
             .and_then(|(entity_location, field_locations)| {
                 let column = self
@@ -266,19 +252,6 @@ impl World {
             })
     }
 
-    pub fn get<T: Component>(&self, entity: Entity) -> Option<MappedRwLockReadGuard<T>> {
-        let _ = T::NON_ZST_OR_PANIC;
-        self.get_bytes(T::id().into(), entity).map(|bytes| {
-            MappedRwLockReadGuard::map(bytes, |bytes| {
-                // SAFETY: Don't need to check TypeId because component's Entity id acts as TypeId
-                unsafe { (bytes.as_ptr() as *const T).as_ref() }.unwrap()
-            })
-        })
-    }
-}
-
-// TODO: make everything pub(crate) & Replace with &self versions that enqueue commands
-impl World {
     // TODO: Track entities temporarily & put them in the empty archetype before command flushes
     pub fn new_entity(&mut self) -> Entity {
         let entity_index = self.entity_index.get_mut();
@@ -297,7 +270,7 @@ impl World {
         bytes: &[MaybeUninit<u8>],
         entity: Entity,
     ) {
-        let Some(current_location) = self.entity_location_non_locking(entity) else {
+        let Some(current_location) = self.entity_location(entity) else {
             panic!("Entity does not exist");
         };
         assert_eq!(info.size, bytes.len());
@@ -324,7 +297,7 @@ impl World {
         //  - chunk corresponding to row if we moved to a new archetype is created
         //  - write_into will call drop fn on old component value if we didn't move archetype
         unsafe {
-            let updated_location = self.entity_location_non_locking(entity).unwrap();
+            let updated_location = self.entity_location(entity).unwrap();
             let column = self.field_index[&info.id.into()][&updated_location.archetype];
             self.archetypes[destination] //
                 .columns[*column]
@@ -333,20 +306,8 @@ impl World {
         }
     }
 
-    pub fn set_component<C: Component>(&mut self, component: C, entity: Entity) {
-        // SAFETY: This is always safe because we are providing static type info
-        unsafe {
-            let bytes = from_raw_parts(
-                (&component as *const C) as *const MaybeUninit<u8>,
-                size_of::<C>(),
-            );
-            self.set_bytes(C::info(), bytes, entity);
-        }
-        forget(component);
-    }
-
-    pub fn remove_field(&mut self, field: FieldId, entity: Entity) {
-        let Some(current_location) = self.entity_location_non_locking(entity) else {
+    fn remove_field(&mut self, field: FieldId, entity: Entity) {
+        let Some(current_location) = self.entity_location(entity) else {
             panic!("Entity does not exist");
         };
         let current_archetype = &self.archetypes[current_location.archetype];
@@ -370,83 +331,5 @@ impl World {
 
     pub fn remove_component<C: Component>(&mut self, entity: Entity) {
         self.remove_field(C::id().into(), entity);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate as ssecs;
-    use crate::component::tests::*;
-    use ssecs_macros::*;
-    use std::sync::Arc;
-
-    #[derive(Component)]
-    #[allow(dead_code)]
-    pub struct RefCounted(Arc<u8>);
-
-    #[derive(Component)]
-    struct Foo(u8);
-
-    #[derive(Component)]
-    struct Bar(u8);
-
-    #[test]
-    fn component_info() {
-        let world = World::new();
-        for info in [
-            ComponentInfo::info(),
-            Player::info(),
-            Health::info(),
-            Transform::info(),
-            Foo::info(),
-            Bar::info(),
-        ] {
-            assert_eq!(world.component_info(info.id), Some(info));
-        }
-    }
-
-    #[test]
-    fn zsts() {
-        let mut world = World::new();
-        let e = world.new_entity();
-        world.set_component(Player, e);
-        assert_eq!(true, world.has_component(Player::id(), e));
-        world.remove_component::<Player>(e);
-        assert_eq!(false, world.has_component(Player::id(), e));
-    }
-
-    #[test]
-    fn set_remove() {
-        let mut world = World::new();
-        let e = world.new_entity();
-        world.set_component(Foo(0), e);
-        assert_eq!(true, world.has_component(Foo::id(), e));
-        assert_eq!(0, world.get::<Foo>(e).unwrap().0);
-
-        world.set_component(Bar(1), e);
-        assert_eq!(true, world.has_component(Foo::id(), e));
-        assert_eq!(0, world.get::<Foo>(e).unwrap().0);
-        assert_eq!(true, world.has_component(Bar::id(), e));
-        assert_eq!(1, world.get::<Bar>(e).unwrap().0);
-
-        world.remove_component::<Foo>(e);
-        assert_eq!(false, world.has_component(Foo::id(), e));
-        assert!(world.get::<Foo>(e).is_none());
-        assert_eq!(true, world.has_component(Bar::id(), e));
-        assert_eq!(1, world.get::<Bar>(e).unwrap().0);
-    }
-
-    #[test]
-    fn drop() {
-        let val = Arc::new(0_u8);
-        let mut world = World::new();
-        let e = world.new_entity();
-        world.set_component(RefCounted(val.clone()), e);
-        assert_eq!(2, Arc::strong_count(&val));
-        assert_eq!(true, world.has_component(RefCounted::id(), e));
-        world.remove_component::<RefCounted>(e);
-        assert_eq!(false, world.has_component(RefCounted::id(), e));
-        assert_eq!(1, Arc::strong_count(&val));
     }
 }
