@@ -24,7 +24,6 @@ pub(crate) struct FieldLocations(HashMap<ArchetypeId, ColumnIndex>);
 #[derive(Debug)]
 pub(crate) struct Core {
     // Add read_index: SlotMap<Entity, EntityLocation> (a copy of entity_index) if this is too slow
-    /// `location.archetype` should never be `Archetype::null()`
     entity_index: Mutex<SlotMap<Entity, EntityLocation>>,
     field_index: HashMap<FieldId, FieldLocations>,
     signature_index: HashMap<Signature, ArchetypeId>,
