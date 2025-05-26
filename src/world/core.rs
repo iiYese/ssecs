@@ -176,22 +176,14 @@ impl Core {
         }
     }
 
-    fn entity_location_locking(&self, entity: Entity) -> Option<EntityLocation> {
-        let entity_index = self.entity_index.lock();
-        entity_index.get(entity).copied()
-    }
-
     fn entity_location(&mut self, entity: Entity) -> Option<EntityLocation> {
         let entity_index = self.entity_index.get_mut();
         entity_index.get(entity).copied()
     }
 
-    pub fn has_component(&self, component: Entity, entity: Entity) -> bool {
-        self.entity_location_locking(entity) //
-            .zip(self.field_index.get(&component.into()))
-            .is_some_and(|(entity_location, field_locations)| {
-                field_locations.contains_key(&entity_location.archetype)
-            })
+    fn entity_location_locking(&self, entity: Entity) -> Option<EntityLocation> {
+        let entity_index = self.entity_index.lock();
+        entity_index.get(entity).copied()
     }
 
     fn get_component_info(
@@ -228,6 +220,14 @@ impl Core {
         let field_index = &self.field_index;
         let archetypes = &self.archetypes;
         Self::get_component_info(&entity_index, field_index, archetypes, component)
+    }
+
+    pub fn has_component(&self, component: Entity, entity: Entity) -> bool {
+        self.entity_location_locking(entity) //
+            .zip(self.field_index.get(&component.into()))
+            .is_some_and(|(entity_location, field_locations)| {
+                field_locations.contains_key(&entity_location.archetype)
+            })
     }
 
     /// Get a component from an entity as type erased bytes
