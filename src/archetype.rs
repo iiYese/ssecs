@@ -8,9 +8,9 @@ use smallvec::SmallVec;
 
 use crate::{component::ComponentInfo, entity::Entity};
 
-const ARCHETYPE_SAO: usize = 8;
-
+pub type ColumnReadGuard<'a, T> = parking_lot::MappedRwLockReadGuard<'a, T>;
 new_key_type! { pub(crate) struct ArchetypeId; }
+const ARCHETYPE_SAO: usize = 8;
 
 impl ArchetypeId {
     pub(crate) fn empty_archetype() -> ArchetypeId {

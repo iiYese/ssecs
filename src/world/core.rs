@@ -1,15 +1,18 @@
 use std::{collections::HashMap, mem::MaybeUninit};
 
 use derive_more::{Deref, DerefMut};
-use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
+use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use slotmap::SlotMap;
+use thread_local::ThreadLocal;
 
 use crate::{
     archetype::{
-        Archetype, ArchetypeEdge, ArchetypeId, Column, ColumnIndex, FieldId, RowIndex, Signature,
+        Archetype, ArchetypeEdge, ArchetypeId, Column, ColumnIndex, ColumnReadGuard, FieldId,
+        RowIndex, Signature,
     },
     component::{COMPONENT_ENTRIES, Component, ComponentInfo},
     entity::Entity,
+    world::command::Command,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -28,6 +31,7 @@ pub(crate) struct Core {
     field_index: HashMap<FieldId, FieldLocations>,
     signature_index: HashMap<Signature, ArchetypeId>,
     archetypes: SlotMap<ArchetypeId, Archetype>,
+    commands: ThreadLocal<Command>,
 }
 
 impl Core {
@@ -86,6 +90,7 @@ impl Core {
                 (Signature::default(), empty_archetype_id),
                 (component_info_signature, component_info_archetype_id),
             ]),
+            commands: ThreadLocal::default(),
         }
     }
 
@@ -235,7 +240,7 @@ impl Core {
         &self,
         field: FieldId,
         entity: Entity,
-    ) -> Option<MappedRwLockReadGuard<[MaybeUninit<u8>]>> {
+    ) -> Option<ColumnReadGuard<[MaybeUninit<u8>]>> {
         self.entity_location_locking(entity) //
             .zip(self.field_index.get(&field))
             .and_then(|(entity_location, field_locations)| {

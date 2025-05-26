@@ -3,27 +3,26 @@ use std::{mem::MaybeUninit, sync::Arc};
 
 use crate::{
     NonZstOrPanic,
-    archetype::FieldId,
+    archetype::{ColumnReadGuard, FieldId},
     component::{COMPONENT_ENTRIES, Component, ComponentInfo},
     entity::Entity,
+    query::Query,
 };
 
-mod commands;
-mod core;
-mod mantle;
+mod command;
+pub(crate) mod core;
 
 use core::Core;
-use mantle::Mantle;
 
 pub struct World {
-    mantle: Arc<Mantle>,
+    core: Arc<Core>,
 }
 
 // TODO: Commands
 impl World {
     pub fn new() -> Self {
         let mut world = Self {
-            mantle: Arc::new(Mantle::new()),
+            core: Arc::new(Core::new()),
         };
 
         for init in COMPONENT_ENTRIES {
@@ -34,7 +33,7 @@ impl World {
     }
 
     fn get_core_mut(&mut self) -> &mut Core {
-        &mut Arc::get_mut(&mut self.mantle).unwrap().core
+        Arc::get_mut(&mut self.core).unwrap()
     }
 
     pub fn new_entity(&mut self) -> Entity {
@@ -42,11 +41,11 @@ impl World {
     }
 
     pub fn component_info(&self, component: Entity) -> Option<ComponentInfo> {
-        self.mantle.core.component_info_locking(component)
+        self.core.component_info_locking(component)
     }
 
     pub fn has_component(&self, component: Entity, entity: Entity) -> bool {
-        self.mantle.core.has_component(component, entity)
+        self.core.has_component(component, entity)
     }
 
     pub fn remove_component<C: Component>(&mut self, entity: Entity) {
@@ -78,18 +77,22 @@ impl World {
         &self,
         field: FieldId,
         entity: Entity,
-    ) -> Option<MappedRwLockReadGuard<[MaybeUninit<u8>]>> {
-        self.mantle.core.get_bytes(field, entity)
+    ) -> Option<ColumnReadGuard<[MaybeUninit<u8>]>> {
+        self.core.get_bytes(field, entity)
     }
 
-    pub fn get<T: Component>(&self, entity: Entity) -> Option<MappedRwLockReadGuard<T>> {
+    pub fn get<T: Component>(&self, entity: Entity) -> Option<ColumnReadGuard<T>> {
         let _ = T::NON_ZST_OR_PANIC;
-        self.mantle.core.get_bytes(T::id().into(), entity).map(|bytes| {
-            MappedRwLockReadGuard::map(bytes, |bytes| {
+        self.core.get_bytes(T::id().into(), entity).map(|bytes| {
+            ColumnReadGuard::map(bytes, |bytes| {
                 // SAFETY: Don't need to check TypeId because component's Entity id acts as TypeId
                 unsafe { (bytes.as_ptr() as *const T).as_ref() }.unwrap()
             })
         })
+    }
+
+    pub fn query(&self) -> Query {
+        Query::new(self.core.clone())
     }
 }
 

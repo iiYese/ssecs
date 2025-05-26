@@ -24,4 +24,4 @@ parking_lot = "0.12.3"
 slotmap = { git = "https://github.com/iiYese/slotmap.git", rev = "2a9066a" }
 smallvec = "1.15.0"
 ssecs-macros.workspace = true
-
+thread_local = "1.1.8"

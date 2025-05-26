@@ -1,4 +1,9 @@
-use crate::entity::Entity;
+use std::sync::Arc;
+
+use crate::{
+    entity::Entity,
+    world::{World, core::Core},
+};
 
 pub struct Access {}
 
@@ -32,11 +37,17 @@ impl From<&'_ mut [Entity; 1]> for Access {
     }
 }
 
-pub struct Query {}
+pub struct Query {
+    entity: Entity,
+    core: Arc<Core>,
+}
 
 impl Query {
-    pub fn new() -> Self {
-        Self {}
+    pub(crate) fn new(core: Arc<Core>) -> Self {
+        Self {
+            core,
+            entity: Entity::null(), // TODO
+        }
     }
 
     pub fn with<T>(self, _: T) -> Self
@@ -54,7 +65,9 @@ mod test {
 
     #[test]
     fn query_compile() {
-        Query::new()
+        let world = World::new();
+        let query = world
+            .query()
             .with(Transform::id())
             .with(&Transform::id())
             .with(&[Transform::id()])
