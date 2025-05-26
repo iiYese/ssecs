@@ -50,7 +50,7 @@ impl World {
     }
 
     pub fn remove_component<C: Component>(&mut self, entity: Entity) {
-        self.get_core_mut().remove_component::<C>(entity);
+        self.get_core_mut().remove_field(C::id().into(), entity);
     }
 
     pub unsafe fn set_bytes(

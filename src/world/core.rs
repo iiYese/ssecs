@@ -306,7 +306,7 @@ impl Core {
         }
     }
 
-    fn remove_field(&mut self, field: FieldId, entity: Entity) {
+    pub fn remove_field(&mut self, field: FieldId, entity: Entity) {
         let Some(current_location) = self.entity_location(entity) else {
             panic!("Entity does not exist");
         };
@@ -327,9 +327,5 @@ impl Core {
         unsafe {
             self.move_entity(current_location, destination);
         }
-    }
-
-    pub fn remove_component<C: Component>(&mut self, entity: Entity) {
-        self.remove_field(C::id().into(), entity);
     }
 }
