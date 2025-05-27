@@ -18,6 +18,12 @@ pub(crate) struct Command {
     jump: usize,
 }
 
+impl Command {
+    fn apply(self, core: &mut Core) {
+        todo!()
+    }
+}
+
 unsafe impl Send for Command {}
 
 impl Default for Command {

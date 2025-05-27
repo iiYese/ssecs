@@ -1,5 +1,4 @@
-use parking_lot::MappedRwLockReadGuard;
-use std::{boxed::Box, mem::MaybeUninit, pin::Pin, sync::Arc};
+use std::{mem::MaybeUninit, sync::Arc};
 
 use crate::{
     NonZstOrPanic,
@@ -11,18 +10,23 @@ use crate::{
 
 mod command;
 pub(crate) mod core;
+pub(crate) mod mantle;
 
 use core::Core;
+use mantle::Mantle;
 
 pub struct World {
-    core: Pin<Box<Core>>, // Leak & remove pin?
+    mantle: Mantle,
 }
 
 // TODO: Commands
 impl World {
     pub fn new() -> Self {
         let mut world = Self {
-            core: Box::pin(Core::new()),
+            mantle: Mantle {
+                core: Arc::new(Core::new()),
+                commands: Arc::new(Default::default()),
+            },
         };
 
         for init in COMPONENT_ENTRIES {
@@ -32,20 +36,24 @@ impl World {
         world
     }
 
+    fn core_mut(&mut self) -> &mut Core {
+        Arc::get_mut(&mut self.mantle.core).unwrap()
+    }
+
     pub fn new_entity(&mut self) -> Entity {
-        self.core.new_entity().0
+        self.core_mut().new_entity().0
     }
 
     pub fn component_info(&self, component: Entity) -> Option<ComponentInfo> {
-        self.core.component_info_locking(component)
+        self.mantle.core.component_info_locking(component)
     }
 
     pub fn has_component(&self, component: Entity, entity: Entity) -> bool {
-        self.core.has_component(component, entity)
+        self.mantle.core.has_component(component, entity)
     }
 
     pub fn remove_component<C: Component>(&mut self, entity: Entity) {
-        self.core.remove_field(C::id().into(), entity);
+        self.core_mut().remove_field(C::id().into(), entity);
     }
 
     pub unsafe fn set_bytes(
@@ -54,10 +62,10 @@ impl World {
         bytes: &[MaybeUninit<u8>],
         entity: Entity,
     ) {
-        let Some(location) = self.core.entity_location(entity) else {
+        let Some(location) = self.core_mut().entity_location(entity) else {
             panic!("Entity does not exist");
         };
-        unsafe { self.core.set_bytes(info, bytes, location) };
+        unsafe { self.core_mut().set_bytes(info, bytes, location) };
     }
 
     pub fn set_component<C: Component>(&mut self, component: C, entity: Entity) {
@@ -77,18 +85,18 @@ impl World {
         field: FieldId,
         entity: Entity,
     ) -> Option<ColumnReadGuard<[MaybeUninit<u8>]>> {
-        let Some(location) = self.core.entity_location_locking(entity) else {
+        let Some(location) = self.mantle.core.entity_location_locking(entity) else {
             panic!("Entity does not exist");
         };
-        self.core.get_bytes(field, location)
+        self.mantle.core.get_bytes(field, location)
     }
 
     pub fn get<T: Component>(&self, entity: Entity) -> Option<ColumnReadGuard<T>> {
         let _ = T::NON_ZST_OR_PANIC;
-        let Some(location) = self.core.entity_location_locking(entity) else {
+        let Some(location) = self.mantle.core.entity_location_locking(entity) else {
             panic!("Entity does not exist");
         };
-        self.core.get_bytes(T::id().into(), location).map(|bytes| {
+        self.mantle.core.get_bytes(T::id().into(), location).map(|bytes| {
             ColumnReadGuard::map(bytes, |bytes| {
                 // SAFETY: Don't need to check TypeId because component's Entity id acts as TypeId
                 unsafe { (bytes.as_ptr() as *const T).as_ref() }.unwrap()
@@ -97,7 +105,11 @@ impl World {
     }
 
     pub fn query(&self) -> Query {
-        Query::new(&*self.core)
+        Query::new(self.mantle.clone())
+    }
+
+    pub(crate) fn flush(&mut self) {
+        todo!()
     }
 }
 

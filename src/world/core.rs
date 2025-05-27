@@ -1,13 +1,8 @@
-use std::{
-    collections::HashMap,
-    mem::MaybeUninit,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::{collections::HashMap, mem::MaybeUninit};
 
 use derive_more::{Deref, DerefMut};
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use slotmap::SlotMap;
-use thread_local::ThreadLocal;
 
 use crate::{
     archetype::{
@@ -16,7 +11,6 @@ use crate::{
     },
     component::{COMPONENT_ENTRIES, Component, ComponentInfo},
     entity::Entity,
-    world::command::Command,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -35,9 +29,6 @@ pub(crate) struct Core {
     field_index: HashMap<FieldId, FieldLocations>,
     signature_index: HashMap<Signature, ArchetypeId>,
     archetypes: SlotMap<ArchetypeId, Archetype>,
-    commands: ThreadLocal<Command>,
-    // No. of queries referencing core
-    ref_count: AtomicUsize,
 }
 
 impl Core {
@@ -96,17 +87,7 @@ impl Core {
                 (Signature::default(), empty_archetype_id),
                 (component_info_signature, component_info_archetype_id),
             ]),
-            commands: ThreadLocal::default(),
-            ref_count: AtomicUsize::new(0),
         }
-    }
-
-    pub(crate) fn incr_ref_count(&self) {
-        self.ref_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub(crate) fn decr_ref_count(&self) {
-        self.ref_count.fetch_sub(1, Ordering::Relaxed);
     }
 
     /// Must ensure missing entries in columns for entity are filled

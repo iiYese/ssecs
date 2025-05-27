@@ -1,8 +1,6 @@
-use std::sync::Arc;
-
 use crate::{
     entity::Entity,
-    world::{World, core::Core},
+    world::{World, mantle::Mantle},
 };
 
 pub struct Access {}
@@ -40,14 +38,13 @@ impl From<&'_ mut [Entity; 1]> for Access {
 #[derive(Clone)]
 pub struct Query {
     entity: Entity,
-    core: *const Core,
+    mantle: Mantle,
 }
 
 impl Query {
-    pub(crate) fn new(core: &Core) -> Self {
-        core.incr_ref_count();
+    pub(crate) fn new(mantle: Mantle) -> Self {
         Self {
-            core,
+            mantle,
             entity: Entity::null(), // TODO
         }
     }
@@ -57,12 +54,6 @@ impl Query {
         Access: From<T>,
     {
         self
-    }
-}
-
-impl Drop for Query {
-    fn drop(&mut self) {
-        unsafe { self.core.as_ref().unwrap().decr_ref_count() };
     }
 }
 
