@@ -1,4 +1,8 @@
-use std::{collections::HashMap, mem::MaybeUninit};
+use std::{
+    collections::HashMap,
+    mem::MaybeUninit,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use derive_more::{Deref, DerefMut};
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
@@ -32,6 +36,8 @@ pub(crate) struct Core {
     signature_index: HashMap<Signature, ArchetypeId>,
     archetypes: SlotMap<ArchetypeId, Archetype>,
     commands: ThreadLocal<Command>,
+    // No. of queries referencing core
+    ref_count: AtomicUsize,
 }
 
 impl Core {
@@ -91,13 +97,26 @@ impl Core {
                 (component_info_signature, component_info_archetype_id),
             ]),
             commands: ThreadLocal::default(),
+            ref_count: AtomicUsize::new(0),
         }
     }
 
+    pub(crate) fn incr_ref_count(&self) {
+        self.ref_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn decr_ref_count(&self) {
+        self.ref_count.fetch_sub(1, Ordering::Relaxed);
+    }
+
     /// Must ensure missing entries in columns for entity are filled
-    unsafe fn move_entity(&mut self, old_location: EntityLocation, destination_id: ArchetypeId) {
+    unsafe fn move_entity(
+        &mut self,
+        old_location: EntityLocation,
+        destination_id: ArchetypeId,
+    ) -> EntityLocation {
         if old_location.archetype == destination_id {
-            return;
+            return old_location;
         }
         let entity_index = self.entity_index.get_mut();
         let [old_archetype, new_archetype] = self //
@@ -117,10 +136,11 @@ impl Core {
         });
 
         // Update entity locations
-        entity_index[entity] = EntityLocation {
+        let updated_location = EntityLocation {
             archetype: destination_id,
             row: RowIndex(new_archetype.entities.len() - 1),
         };
+        entity_index[entity] = updated_location;
         if *old_location.row < old_archetype.entities.len() {
             entity_index[old_archetype.entities[*old_location.row]].row = old_location.row;
         }
@@ -129,6 +149,8 @@ impl Core {
         for column in old_archetype.columns.iter() {
             column.write().shrink_to_fit(old_archetype.entities.len());
         }
+
+        updated_location
     }
 
     fn connect_edges(&mut self, signature: Signature, id: ArchetypeId) {
@@ -181,12 +203,12 @@ impl Core {
         }
     }
 
-    fn entity_location(&mut self, entity: Entity) -> Option<EntityLocation> {
+    pub(crate) fn entity_location(&mut self, entity: Entity) -> Option<EntityLocation> {
         let entity_index = self.entity_index.get_mut();
         entity_index.get(entity).copied()
     }
 
-    fn entity_location_locking(&self, entity: Entity) -> Option<EntityLocation> {
+    pub(crate) fn entity_location_locking(&self, entity: Entity) -> Option<EntityLocation> {
         let entity_index = self.entity_index.lock();
         entity_index.get(entity).copied()
     }
@@ -213,21 +235,21 @@ impl Core {
     }
 
     /// Get metadata of a component
-    fn component_info(&mut self, component: Entity) -> Option<ComponentInfo> {
+    pub(crate) fn component_info(&mut self, component: Entity) -> Option<ComponentInfo> {
         let entity_index = self.entity_index.get_mut();
         let field_index = &self.field_index;
         let archetypes = &self.archetypes;
         Self::get_component_info(entity_index, field_index, archetypes, component)
     }
 
-    pub fn component_info_locking(&self, component: Entity) -> Option<ComponentInfo> {
+    pub(crate) fn component_info_locking(&self, component: Entity) -> Option<ComponentInfo> {
         let entity_index = self.entity_index.lock();
         let field_index = &self.field_index;
         let archetypes = &self.archetypes;
         Self::get_component_info(&entity_index, field_index, archetypes, component)
     }
 
-    pub fn has_component(&self, component: Entity, entity: Entity) -> bool {
+    pub(crate) fn has_component(&self, component: Entity, entity: Entity) -> bool {
         self.entity_location_locking(entity) //
             .zip(self.field_index.get(&component.into()))
             .is_some_and(|(entity_location, field_locations)| {
@@ -236,49 +258,46 @@ impl Core {
     }
 
     /// Get a component from an entity as type erased bytes
-    pub fn get_bytes(
+    pub(crate) fn get_bytes(
         &self,
         field: FieldId,
-        entity: Entity,
+        entity_location: EntityLocation,
     ) -> Option<ColumnReadGuard<[MaybeUninit<u8>]>> {
-        self.entity_location_locking(entity) //
-            .zip(self.field_index.get(&field))
-            .and_then(|(entity_location, field_locations)| {
-                let column = self
-                    .archetypes
-                    .get(entity_location.archetype)?
-                    .columns
-                    .get(**field_locations.get(&entity_location.archetype)?)?
-                    .read();
-                Some(RwLockReadGuard::map(column, |column| {
-                    column.get_chunk(entity_location.row)
-                }))
-            })
+        self.field_index.get(&field).and_then(|field_locations| {
+            let column = self
+                .archetypes
+                .get(entity_location.archetype)?
+                .columns
+                .get(**field_locations.get(&entity_location.archetype)?)?
+                .read();
+            Some(RwLockReadGuard::map(column, |column| {
+                column.get_chunk(entity_location.row)
+            }))
+        })
     }
 
     // TODO: Track entities temporarily & put them in the empty archetype before command flushes
-    pub fn new_entity(&mut self) -> Entity {
+    pub(crate) fn new_entity(&mut self) -> (Entity, EntityLocation) {
         let entity_index = self.entity_index.get_mut();
         let empty_archetype = &mut self.archetypes[ArchetypeId::empty_archetype()];
-        let new_entity = entity_index.insert(EntityLocation {
+        let entity_location = EntityLocation {
             archetype: ArchetypeId::empty_archetype(),
             row: RowIndex(empty_archetype.entities.len()),
-        });
-        empty_archetype.entities.push(new_entity);
-        new_entity
+        };
+        let entity_id = entity_index.insert(entity_location);
+        empty_archetype.entities.push(entity_id);
+        (entity_id, entity_location)
     }
 
-    pub unsafe fn set_bytes(
+    pub(crate) unsafe fn set_bytes(
         &mut self,
         info: ComponentInfo,
         bytes: &[MaybeUninit<u8>],
-        entity: Entity,
-    ) {
-        let Some(current_location) = self.entity_location(entity) else {
-            panic!("Entity does not exist");
-        };
+        current_location: EntityLocation,
+    ) -> EntityLocation {
         assert_eq!(info.size, bytes.len());
         let current_archetype = &self.archetypes[current_location.archetype];
+        let entity = current_archetype.entities[*current_location.row];
 
         // Find destination archetype
         let destination = if current_archetype.signature.contains(info.id.into()) {
@@ -300,17 +319,18 @@ impl Core {
         //  - component info should match column component info
         //  - chunk corresponding to row if we moved to a new archetype is created
         //  - write_into will call drop fn on old component value if we didn't move archetype
+        let updated_location = self.entity_location(entity).unwrap();
         unsafe {
-            let updated_location = self.entity_location(entity).unwrap();
             let column = self.field_index[&info.id.into()][&updated_location.archetype];
             self.archetypes[destination] //
                 .columns[*column]
                 .write()
                 .write_into(updated_location.row, bytes);
         }
+        updated_location
     }
 
-    pub fn remove_field(&mut self, field: FieldId, entity: Entity) {
+    pub(crate) fn remove_field(&mut self, field: FieldId, entity: Entity) -> EntityLocation {
         let Some(current_location) = self.entity_location(entity) else {
             panic!("Entity does not exist");
         };
@@ -328,8 +348,6 @@ impl Core {
         };
 
         // SAFETY: Should only ever drop components
-        unsafe {
-            self.move_entity(current_location, destination);
-        }
+        unsafe { self.move_entity(current_location, destination) }
     }
 }

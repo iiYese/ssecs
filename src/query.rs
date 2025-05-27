@@ -37,13 +37,15 @@ impl From<&'_ mut [Entity; 1]> for Access {
     }
 }
 
+#[derive(Clone)]
 pub struct Query {
     entity: Entity,
-    core: Arc<Core>,
+    core: *const Core,
 }
 
 impl Query {
-    pub(crate) fn new(core: Arc<Core>) -> Self {
+    pub(crate) fn new(core: &Core) -> Self {
+        core.incr_ref_count();
         Self {
             core,
             entity: Entity::null(), // TODO
@@ -55,6 +57,12 @@ impl Query {
         Access: From<T>,
     {
         self
+    }
+}
+
+impl Drop for Query {
+    fn drop(&mut self) {
+        unsafe { self.core.as_ref().unwrap().decr_ref_count() };
     }
 }
 

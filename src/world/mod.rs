@@ -1,5 +1,5 @@
 use parking_lot::MappedRwLockReadGuard;
-use std::{mem::MaybeUninit, sync::Arc};
+use std::{boxed::Box, mem::MaybeUninit, pin::Pin, sync::Arc};
 
 use crate::{
     NonZstOrPanic,
@@ -15,14 +15,14 @@ pub(crate) mod core;
 use core::Core;
 
 pub struct World {
-    core: Arc<Core>,
+    core: Pin<Box<Core>>, // Leak & remove pin?
 }
 
 // TODO: Commands
 impl World {
     pub fn new() -> Self {
         let mut world = Self {
-            core: Arc::new(Core::new()),
+            core: Box::pin(Core::new()),
         };
 
         for init in COMPONENT_ENTRIES {
@@ -32,12 +32,8 @@ impl World {
         world
     }
 
-    fn get_core_mut(&mut self) -> &mut Core {
-        Arc::get_mut(&mut self.core).unwrap()
-    }
-
     pub fn new_entity(&mut self) -> Entity {
-        self.get_core_mut().new_entity()
+        self.core.new_entity().0
     }
 
     pub fn component_info(&self, component: Entity) -> Option<ComponentInfo> {
@@ -49,7 +45,7 @@ impl World {
     }
 
     pub fn remove_component<C: Component>(&mut self, entity: Entity) {
-        self.get_core_mut().remove_field(C::id().into(), entity);
+        self.core.remove_field(C::id().into(), entity);
     }
 
     pub unsafe fn set_bytes(
@@ -58,7 +54,10 @@ impl World {
         bytes: &[MaybeUninit<u8>],
         entity: Entity,
     ) {
-        unsafe { self.get_core_mut().set_bytes(info, bytes, entity) }
+        let Some(location) = self.core.entity_location(entity) else {
+            panic!("Entity does not exist");
+        };
+        unsafe { self.core.set_bytes(info, bytes, location) };
     }
 
     pub fn set_component<C: Component>(&mut self, component: C, entity: Entity) {
@@ -78,12 +77,18 @@ impl World {
         field: FieldId,
         entity: Entity,
     ) -> Option<ColumnReadGuard<[MaybeUninit<u8>]>> {
-        self.core.get_bytes(field, entity)
+        let Some(location) = self.core.entity_location_locking(entity) else {
+            panic!("Entity does not exist");
+        };
+        self.core.get_bytes(field, location)
     }
 
     pub fn get<T: Component>(&self, entity: Entity) -> Option<ColumnReadGuard<T>> {
         let _ = T::NON_ZST_OR_PANIC;
-        self.core.get_bytes(T::id().into(), entity).map(|bytes| {
+        let Some(location) = self.core.entity_location_locking(entity) else {
+            panic!("Entity does not exist");
+        };
+        self.core.get_bytes(T::id().into(), location).map(|bytes| {
             ColumnReadGuard::map(bytes, |bytes| {
                 // SAFETY: Don't need to check TypeId because component's Entity id acts as TypeId
                 unsafe { (bytes.as_ptr() as *const T).as_ref() }.unwrap()
@@ -92,7 +97,7 @@ impl World {
     }
 
     pub fn query(&self) -> Query {
-        Query::new(self.core.clone())
+        Query::new(&*self.core)
     }
 }
 
