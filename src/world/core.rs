@@ -258,7 +258,7 @@ impl Core {
     }
 
     // TODO: Track entities temporarily & put them in the empty archetype before command flushes
-    pub(crate) fn new_entity(&mut self) -> (Entity, EntityLocation) {
+    pub(crate) fn spawn(&mut self) -> (Entity, EntityLocation) {
         let entity_index = self.entity_index.get_mut();
         let empty_archetype = &mut self.archetypes[ArchetypeId::empty_archetype()];
         let entity_location = EntityLocation {

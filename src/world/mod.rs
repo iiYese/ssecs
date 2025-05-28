@@ -40,8 +40,8 @@ impl World {
         Arc::get_mut(&mut self.mantle.core).unwrap()
     }
 
-    pub fn new_entity(&mut self) -> Entity {
-        self.core_mut().new_entity().0
+    pub fn spawn(&mut self) -> Entity {
+        self.core_mut().spawn().0
     }
 
     pub fn component_info(&self, component: Entity) -> Option<ComponentInfo> {
@@ -149,7 +149,7 @@ mod tests {
     #[test]
     fn zsts() {
         let mut world = World::new();
-        let e = world.new_entity();
+        let e = world.spawn();
         world.set_component(Player, e);
         assert_eq!(true, world.has_component(Player::id(), e));
         world.remove_component::<Player>(e);
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn set_remove() {
         let mut world = World::new();
-        let e = world.new_entity();
+        let e = world.spawn();
         world.set_component(Foo(0), e);
         assert_eq!(true, world.has_component(Foo::id(), e));
         assert_eq!(0, world.get::<Foo>(e).unwrap().0);
@@ -181,7 +181,7 @@ mod tests {
     fn drop() {
         let val = Arc::new(0_u8);
         let mut world = World::new();
-        let e = world.new_entity();
+        let e = world.spawn();
         world.set_component(RefCounted(val.clone()), e);
         assert_eq!(2, Arc::strong_count(&val));
         assert_eq!(true, world.has_component(RefCounted::id(), e));
