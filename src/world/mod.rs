@@ -60,12 +60,11 @@ impl World {
     }
 
     pub(crate) fn flush(&mut self) {
-        let queues = self.mantle.commands.get();
+        let queues = Arc::get_mut(&mut self.mantle.commands).unwrap();
         for cell in queues.into_iter() {
-            for command in cell.take() {
+            for command in cell.get_mut().drain(..) {
                 command.apply(Arc::get_mut(&mut self.mantle.core).unwrap())
             }
-            cell.set(Vec::default());
         }
     }
 }

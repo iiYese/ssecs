@@ -1,14 +1,6 @@
-use std::{
-    mem::MaybeUninit,
-    sync::{Arc, atomic::AtomicBool},
-};
+use std::mem::MaybeUninit;
 
-use crate::{
-    archetype::FieldId,
-    component::{Component, ComponentInfo},
-    entity::Entity,
-    world::core::Core,
-};
+use crate::{archetype::FieldId, component::ComponentInfo, entity::Entity, world::core::Core};
 
 // TODO: Batching
 // - Despawn is last: Ignore all other ops on entity
