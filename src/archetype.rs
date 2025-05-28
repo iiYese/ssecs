@@ -1,4 +1,7 @@
-use std::{collections::HashMap, mem::MaybeUninit};
+use std::{
+    collections::HashMap,
+    mem::{ManuallyDrop, MaybeUninit},
+};
 
 use aligned_vec::{AVec, RuntimeAlign};
 use derive_more::{Deref, DerefMut};
@@ -12,6 +15,14 @@ pub type ColumnReadGuard<'a, T> = parking_lot::MappedRwLockReadGuard<'a, T>;
 new_key_type! { pub(crate) struct ArchetypeId; }
 const ARCHETYPE_SAO: usize = 8;
 
+pub(crate) fn into_bytes<T>(x: T) -> Box<[MaybeUninit<u8>]> {
+    let x = ManuallyDrop::new(x);
+    let bytes: &[MaybeUninit<u8>] = unsafe {
+        std::slice::from_raw_parts((&raw const x).cast(), size_of::<T>()) //
+    };
+    bytes.into()
+}
+
 impl ArchetypeId {
     pub(crate) fn empty_archetype() -> ArchetypeId {
         Self(KeyData::from_ffi(1))
@@ -21,7 +32,7 @@ impl ArchetypeId {
 #[derive(Clone, Copy, Deref, DerefMut, Debug)]
 pub(crate) struct ColumnIndex(pub usize);
 
-#[derive(Clone, Copy, Deref, DerefMut, Debug)]
+#[derive(Clone, Copy, Deref, DerefMut, Debug, PartialEq, Eq)]
 pub(crate) struct RowIndex(pub usize);
 
 #[derive(Debug, Default)]

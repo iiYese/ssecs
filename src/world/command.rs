@@ -45,22 +45,26 @@ impl Default for Command {
 }
 
 impl Command {
-    fn apply(self, core: &mut Core) {
+    pub(crate) fn apply(self, core: &mut Core) {
         use Operation::*;
         match self.operation {
+            Noop => {
+                return;
+            }
             Spawn(entity) => {
-                todo!()
+                //println!("spawn");
+                core.initialize_entity_location(entity);
             }
             Despawn(entity) => {
                 todo!()
             }
             Insert { info, bytes, entity } => {
-                todo!()
+                //println!("insert");
+                unsafe { core.insert_bytes(info, &bytes, entity) };
             }
             Remove { field, entity } => {
-                todo!()
+                core.remove_field(field, entity);
             }
-            Noop => {}
         }
     }
 

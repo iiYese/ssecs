@@ -31,7 +31,7 @@ pub fn component_derive(input: TokenStream) -> TokenStream {
             }
 
             fn init(world: &mut ssecs::world::World) {
-                world.insert(#struct_name::info(), #struct_name::id());
+                world.entity(#struct_name::id()).insert(#struct_name::info());
             }
 
             fn info() -> ssecs::component::ComponentInfo {

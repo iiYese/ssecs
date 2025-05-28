@@ -13,10 +13,16 @@ use crate::{
     entity::Entity,
 };
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct EntityLocation {
     pub(crate) archetype: ArchetypeId,
     pub(crate) row: RowIndex,
+}
+
+impl EntityLocation {
+    pub(crate) fn uninitialized() -> Self {
+        Self { archetype: ArchetypeId::empty_archetype(), row: RowIndex(usize::MAX) }
+    }
 }
 
 #[derive(Deref, DerefMut, Default, Debug)]
@@ -259,26 +265,33 @@ impl Core {
         })
     }
 
-    // TODO: Track entities temporarily & put them in the empty archetype before command flushes
-    pub(crate) fn spawn(&mut self) -> (Entity, EntityLocation) {
+    pub(crate) fn create_uninitialized_entity(&self) -> Entity {
+        let mut entity_index = self.entity_index.lock();
+        entity_index.insert(EntityLocation::uninitialized())
+    }
+
+    pub(crate) fn initialize_entity_location(&mut self, entity: Entity) -> EntityLocation {
         let entity_index = self.entity_index.get_mut();
-        let empty_archetype = &mut self.archetypes[ArchetypeId::empty_archetype()];
-        let entity_location = EntityLocation {
-            archetype: ArchetypeId::empty_archetype(),
-            row: RowIndex(empty_archetype.entities.len()),
-        };
-        let entity_id = entity_index.insert(entity_location);
-        empty_archetype.entities.push(entity_id);
-        (entity_id, entity_location)
+        let mut location = entity_index[entity];
+        if location == EntityLocation::uninitialized() {
+            let empty_archetype = &mut self.archetypes[ArchetypeId::empty_archetype()];
+            location.row = RowIndex(empty_archetype.entities.len());
+            empty_archetype.entities.push(entity);
+            entity_index[entity] = location;
+        }
+        location
     }
 
     pub(crate) unsafe fn insert_bytes(
         &mut self,
         info: ComponentInfo,
         bytes: &[MaybeUninit<u8>],
-        current_location: EntityLocation,
+        entity: Entity,
     ) -> EntityLocation {
         assert_eq!(info.size, bytes.len());
+        let Some(current_location) = self.entity_location(entity) else {
+            panic!("Entity does not exist");
+        };
         let current_archetype = &self.archetypes[current_location.archetype];
         let entity = current_archetype.entities[*current_location.row];
 
@@ -313,11 +326,7 @@ impl Core {
         updated_location
     }
 
-    pub(crate) fn remove_field<Id: Copy + Into<FieldId>>(
-        &mut self,
-        field: Id,
-        entity: Entity,
-    ) -> EntityLocation {
+    pub(crate) fn remove_field(&mut self, field: FieldId, entity: Entity) -> EntityLocation {
         let Some(current_location) = self.entity_location(entity) else {
             panic!("Entity does not exist");
         };
