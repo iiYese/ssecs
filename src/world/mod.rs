@@ -56,7 +56,7 @@ impl World {
         self.core_mut().remove_field(C::id().into(), entity);
     }
 
-    pub unsafe fn set_bytes(
+    pub unsafe fn insert_bytes(
         &mut self,
         info: ComponentInfo,
         bytes: &[MaybeUninit<u8>],
@@ -65,7 +65,7 @@ impl World {
         let Some(location) = self.core_mut().entity_location(entity) else {
             panic!("Entity does not exist");
         };
-        unsafe { self.core_mut().set_bytes(info, bytes, location) };
+        unsafe { self.core_mut().insert_bytes(info, bytes, location) };
     }
 
     pub fn set_component<C: Component>(&mut self, component: C, entity: Entity) {
@@ -75,7 +75,7 @@ impl World {
                 (&component as *const C) as *const MaybeUninit<u8>,
                 size_of::<C>(),
             );
-            self.set_bytes(C::info(), bytes, entity);
+            self.insert_bytes(C::info(), bytes, entity);
         }
         std::mem::forget(component);
     }

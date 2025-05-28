@@ -270,7 +270,7 @@ impl Core {
         (entity_id, entity_location)
     }
 
-    pub(crate) unsafe fn set_bytes(
+    pub(crate) unsafe fn insert_bytes(
         &mut self,
         info: ComponentInfo,
         bytes: &[MaybeUninit<u8>],
