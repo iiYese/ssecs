@@ -44,14 +44,12 @@ impl Command {
                 return;
             }
             Spawn(entity) => {
-                //println!("spawn");
                 core.initialize_entity_location(entity);
             }
             Despawn(entity) => {
                 todo!()
             }
             Insert { info, bytes, entity } => {
-                //println!("insert");
                 unsafe { core.insert_bytes(info, &bytes, entity) };
             }
             Remove { field, entity } => {

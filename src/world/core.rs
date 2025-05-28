@@ -231,19 +231,10 @@ impl Core {
         Self::get_component_info(&entity_index, field_index, archetypes, component)
     }
 
-    pub(crate) fn archetype_has<Id: Into<FieldId>>(
-        &self,
-        field: Id,
-        archetype: ArchetypeId,
-    ) -> bool {
+    pub(crate) fn archetype_has(&self, field: FieldId, archetype: ArchetypeId) -> bool {
         self.field_index
-            .get(&field.into())
+            .get(&field)
             .is_some_and(|field_locations| field_locations.contains_key(&archetype))
-    }
-
-    pub(crate) fn has<Id: Into<FieldId>>(&self, field: Id, entity: Entity) -> bool {
-        self.entity_location_locking(entity)
-            .is_some_and(|entity_location| self.archetype_has(field, entity_location.archetype))
     }
 
     /// Get a component from an entity as type erased bytes

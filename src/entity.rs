@@ -55,7 +55,7 @@ impl View<'_> {
     }
 
     pub fn has<Id: Into<FieldId>>(&self, field: Id) -> bool {
-        self.mantle.core.archetype_has(field, self.location.archetype)
+        self.mantle.core.archetype_has(field.into(), self.location.archetype)
     }
 
     pub fn get<T: Component>(&self) -> Option<ColumnReadGuard<T>> {
