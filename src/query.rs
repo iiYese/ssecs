@@ -3,6 +3,10 @@ use crate::{
     world::{World, mantle::Mantle},
 };
 
+pub trait AccessTuple {
+    type Out;
+}
+
 pub struct Access {}
 
 impl From<Entity> for Access {
@@ -19,18 +23,6 @@ impl From<&'_ Entity> for Access {
 
 impl From<&'_ mut Entity> for Access {
     fn from(_: &mut Entity) -> Access {
-        Access {}
-    }
-}
-
-impl From<&'_ [Entity; 1]> for Access {
-    fn from(_: &[Entity; 1]) -> Access {
-        Access {}
-    }
-}
-
-impl From<&'_ mut [Entity; 1]> for Access {
-    fn from(_: &mut [Entity; 1]) -> Access {
         Access {}
     }
 }
@@ -65,12 +57,10 @@ mod test {
     #[test]
     fn query_compile() {
         let world = World::new();
-        let query = world
+        let query = world //
             .query()
             .with(Transform::id())
             .with(&Transform::id())
-            .with(&[Transform::id()])
-            .with(&mut Transform::id())
-            .with(&mut [Transform::id()]);
+            .with(&mut Transform::id());
     }
 }

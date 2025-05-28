@@ -15,8 +15,8 @@ use crate::{
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct EntityLocation {
-    archetype: ArchetypeId,
-    row: RowIndex,
+    pub(crate) archetype: ArchetypeId,
+    pub(crate) row: RowIndex,
 }
 
 #[derive(Deref, DerefMut, Default, Debug)]
@@ -44,10 +44,8 @@ impl Core {
             // Make sure all component entities are sawned before init
             // Needed if components add relationships (traits)
             for n in 0..COMPONENT_ENTRIES.len() {
-                let id = entity_index.insert(EntityLocation {
-                    archetype: empty_archetype_id,
-                    row: RowIndex(n),
-                });
+                let id = entity_index
+                    .insert(EntityLocation { archetype: empty_archetype_id, row: RowIndex(n) });
                 empty_archetype.entities.push(id);
             }
             // Add ComponentInfo edge
@@ -66,10 +64,7 @@ impl Core {
             columns: vec![RwLock::new(Column::new(ComponentInfo::info()))],
             edges: HashMap::from([(
                 ComponentInfo::id().into(),
-                ArchetypeEdge {
-                    remove: Some(empty_archetype_id),
-                    add: None,
-                },
+                ArchetypeEdge { remove: Some(empty_archetype_id), add: None },
             )]),
         };
 
@@ -230,12 +225,19 @@ impl Core {
         Self::get_component_info(&entity_index, field_index, archetypes, component)
     }
 
-    pub(crate) fn has_component(&self, component: Entity, entity: Entity) -> bool {
-        self.entity_location_locking(entity) //
-            .zip(self.field_index.get(&component.into()))
-            .is_some_and(|(entity_location, field_locations)| {
-                field_locations.contains_key(&entity_location.archetype)
-            })
+    pub(crate) fn archetype_has<Id: Into<FieldId>>(
+        &self,
+        field: Id,
+        archetype: ArchetypeId,
+    ) -> bool {
+        self.field_index
+            .get(&field.into())
+            .is_some_and(|field_locations| field_locations.contains_key(&archetype))
+    }
+
+    pub(crate) fn has<Id: Into<FieldId>>(&self, field: Id, entity: Entity) -> bool {
+        self.entity_location_locking(entity)
+            .is_some_and(|entity_location| self.archetype_has(field, entity_location.archetype))
     }
 
     /// Get a component from an entity as type erased bytes
@@ -311,7 +313,11 @@ impl Core {
         updated_location
     }
 
-    pub(crate) fn remove_field(&mut self, field: FieldId, entity: Entity) -> EntityLocation {
+    pub(crate) fn remove_field<Id: Copy + Into<FieldId>>(
+        &mut self,
+        field: Id,
+        entity: Entity,
+    ) -> EntityLocation {
         let Some(current_location) = self.entity_location(entity) else {
             panic!("Entity does not exist");
         };
@@ -320,12 +326,12 @@ impl Core {
         // Find destination
         let destination = if let Some(edge) = current_archetype //
             .edges
-            .get(&field)
+            .get(&field.into())
             .and_then(|edge| edge.remove)
         {
             edge
         } else {
-            self.create_archetype(current_archetype.signature.clone().without(field))
+            self.create_archetype(current_archetype.signature.clone().without(field.into()))
         };
 
         // SAFETY: Should only ever drop components

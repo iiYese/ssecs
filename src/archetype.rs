@@ -126,10 +126,7 @@ pub(crate) struct Column {
 
 impl Column {
     pub fn new(component_info: ComponentInfo) -> Self {
-        Self {
-            buffer: AVec::new(component_info.align),
-            info: component_info,
-        }
+        Self { buffer: AVec::new(component_info.align), info: component_info }
     }
 
     pub fn no_chunks(&self) -> usize {

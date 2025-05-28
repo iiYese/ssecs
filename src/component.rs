@@ -35,13 +35,7 @@ impl ComponentInfo {
         id: Entity,
         drop: fn(&mut [MaybeUninit<u8>]),
     ) -> Self {
-        Self {
-            name,
-            align,
-            size,
-            id,
-            drop,
-        }
+        Self { name, align, size, id, drop }
     }
 }
 

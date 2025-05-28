@@ -4,11 +4,11 @@ use crate::{
     NonZstOrPanic,
     archetype::{ColumnReadGuard, FieldId},
     component::{COMPONENT_ENTRIES, Component, ComponentInfo},
-    entity::Entity,
+    entity::{Entity, View},
     query::Query,
 };
 
-mod command;
+pub(crate) mod command;
 pub(crate) mod core;
 pub(crate) mod mantle;
 
@@ -23,21 +23,25 @@ pub struct World {
 impl World {
     pub fn new() -> Self {
         let mut world = Self {
-            mantle: Mantle {
-                core: Arc::new(Core::new()),
-                commands: Arc::new(Default::default()),
-            },
+            mantle: Mantle { core: Arc::new(Core::new()), commands: Arc::new(Default::default()) },
         };
 
         for init in COMPONENT_ENTRIES {
             (init)(&mut world);
         }
 
+        world.flush();
+
         world
     }
 
     fn core_mut(&mut self) -> &mut Core {
         Arc::get_mut(&mut self.mantle.core).unwrap()
+    }
+
+    fn entity(&self, entity: Entity) -> View<'_> {
+        let location = self.mantle.core.entity_location_locking(entity).unwrap();
+        View { mantle: &self.mantle, entity, location }
     }
 
     pub fn spawn(&mut self) -> Entity {
@@ -48,12 +52,12 @@ impl World {
         self.mantle.core.component_info_locking(component)
     }
 
-    pub fn has_component(&self, component: Entity, entity: Entity) -> bool {
-        self.mantle.core.has_component(component, entity)
+    pub fn has<Id: Into<FieldId>>(&self, field: Id, entity: Entity) -> bool {
+        self.mantle.core.has(field, entity)
     }
 
-    pub fn remove_component<C: Component>(&mut self, entity: Entity) {
-        self.core_mut().remove_field(C::id().into(), entity);
+    pub fn remove<C: Component>(&mut self, entity: Entity) {
+        self.core_mut().remove_field(C::id(), entity);
     }
 
     pub unsafe fn insert_bytes(
@@ -68,7 +72,7 @@ impl World {
         unsafe { self.core_mut().insert_bytes(info, bytes, location) };
     }
 
-    pub fn set_component<C: Component>(&mut self, component: C, entity: Entity) {
+    pub fn insert<C: Component>(&mut self, component: C, entity: Entity) {
         // SAFETY: This is always safe because we are providing static type info
         unsafe {
             let bytes = std::slice::from_raw_parts(
@@ -150,30 +154,30 @@ mod tests {
     fn zsts() {
         let mut world = World::new();
         let e = world.spawn();
-        world.set_component(Player, e);
-        assert_eq!(true, world.has_component(Player::id(), e));
-        world.remove_component::<Player>(e);
-        assert_eq!(false, world.has_component(Player::id(), e));
+        world.insert(Player, e);
+        assert_eq!(true, world.has(Player::id(), e));
+        world.remove::<Player>(e);
+        assert_eq!(false, world.has(Player::id(), e));
     }
 
     #[test]
     fn set_remove() {
         let mut world = World::new();
         let e = world.spawn();
-        world.set_component(Foo(0), e);
-        assert_eq!(true, world.has_component(Foo::id(), e));
+        world.insert(Foo(0), e);
+        assert_eq!(true, world.has(Foo::id(), e));
         assert_eq!(0, world.get::<Foo>(e).unwrap().0);
 
-        world.set_component(Bar(1), e);
-        assert_eq!(true, world.has_component(Foo::id(), e));
+        world.insert(Bar(1), e);
+        assert_eq!(true, world.has(Foo::id(), e));
         assert_eq!(0, world.get::<Foo>(e).unwrap().0);
-        assert_eq!(true, world.has_component(Bar::id(), e));
+        assert_eq!(true, world.has(Bar::id(), e));
         assert_eq!(1, world.get::<Bar>(e).unwrap().0);
 
-        world.remove_component::<Foo>(e);
-        assert_eq!(false, world.has_component(Foo::id(), e));
+        world.remove::<Foo>(e);
+        assert_eq!(false, world.has(Foo::id(), e));
         assert!(world.get::<Foo>(e).is_none());
-        assert_eq!(true, world.has_component(Bar::id(), e));
+        assert_eq!(true, world.has(Bar::id(), e));
         assert_eq!(1, world.get::<Bar>(e).unwrap().0);
     }
 
@@ -182,11 +186,11 @@ mod tests {
         let val = Arc::new(0_u8);
         let mut world = World::new();
         let e = world.spawn();
-        world.set_component(RefCounted(val.clone()), e);
+        world.insert(RefCounted(val.clone()), e);
         assert_eq!(2, Arc::strong_count(&val));
-        assert_eq!(true, world.has_component(RefCounted::id(), e));
-        world.remove_component::<RefCounted>(e);
-        assert_eq!(false, world.has_component(RefCounted::id(), e));
+        assert_eq!(true, world.has(RefCounted::id(), e));
+        world.remove::<RefCounted>(e);
+        assert_eq!(false, world.has(RefCounted::id(), e));
         assert_eq!(1, Arc::strong_count(&val));
     }
 }
