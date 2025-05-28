@@ -1,9 +1,7 @@
-use std::{mem::MaybeUninit, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
-    NonZstOrPanic,
-    archetype::{ColumnReadGuard, FieldId},
-    component::{COMPONENT_ENTRIES, Component, ComponentInfo},
+    component::{COMPONENT_ENTRIES, ComponentInfo},
     entity::{Entity, View},
     query::Query,
 };
@@ -36,13 +34,17 @@ impl World {
         world
     }
 
-    fn core_mut(&mut self) -> &mut Core {
-        Arc::get_mut(&mut self.mantle.core).unwrap()
-    }
-
     pub fn entity(&self, entity: Entity) -> View<'_> {
         let location = self.mantle.core.entity_location_locking(entity).unwrap();
         View { mantle: &self.mantle, entity, location }
+    }
+
+    pub fn get_entity(&self, entity: Entity) -> Option<View<'_>> {
+        self.mantle.core.entity_location_locking(entity).map(|location| View {
+            entity,
+            mantle: &self.mantle,
+            location,
+        })
     }
 
     pub fn spawn(&self) -> View<'_> {
@@ -73,7 +75,7 @@ impl World {
 mod tests {
     use super::*;
     use crate as ssecs;
-    use crate::component::tests::*;
+    use crate::component::{Component, tests::*};
     use ssecs_macros::*;
     use std::sync::Arc;
 
@@ -145,6 +147,17 @@ mod tests {
             assert_eq!(true, e.has(Bar::id()));
             assert_eq!(1, e.get::<Bar>().unwrap().0);
         }
+    }
+
+    #[test]
+    fn despawn() {
+        let mut world = World::new();
+        let e = world.spawn().id();
+        world.flush();
+        assert!(world.get_entity(e).is_some());
+        world.entity(e).despawn();
+        world.flush();
+        assert!(world.get_entity(e).is_none());
     }
 
     #[test]

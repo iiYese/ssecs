@@ -76,7 +76,7 @@ impl View<'_> {
         todo!()
     }
 
-    fn despawn(self) {
-        todo!()
+    pub fn despawn(self) {
+        self.mantle.enqueue(Command::despawn(self.entity));
     }
 }

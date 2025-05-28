@@ -47,7 +47,7 @@ impl Command {
                 core.initialize_entity_location(entity);
             }
             Despawn(entity) => {
-                todo!()
+                core.despawn(entity);
             }
             Insert { info, bytes, entity } => {
                 unsafe { core.insert_bytes(info, &bytes, entity) };

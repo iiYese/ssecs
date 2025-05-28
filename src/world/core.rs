@@ -273,6 +273,12 @@ impl Core {
         location
     }
 
+    pub(crate) fn despawn(&mut self, entity: Entity) {
+        if let Some(location) = self.entity_index.get_mut().remove(entity) {
+            self.archetypes[location.archetype].drop(location.row);
+        };
+    }
+
     pub(crate) unsafe fn insert_bytes(
         &mut self,
         info: ComponentInfo,
@@ -311,7 +317,7 @@ impl Core {
             let column = self.field_index[&info.id.into()][&updated_location.archetype];
             self.archetypes[destination] //
                 .columns[*column]
-                .write()
+                .get_mut()
                 .write_into(updated_location.row, bytes);
         }
         updated_location

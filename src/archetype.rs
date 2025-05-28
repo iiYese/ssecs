@@ -43,6 +43,15 @@ pub(crate) struct Archetype {
     pub edges: HashMap<FieldId, ArchetypeEdge>,
 }
 
+impl Archetype {
+    pub(crate) fn drop(&mut self, row: RowIndex) {
+        self.entities.swap_remove(*row);
+        for column in &mut self.columns {
+            column.get_mut().swap_drop(row);
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct ArchetypeEdge {
     pub add: Option<ArchetypeId>,
@@ -140,6 +149,13 @@ impl Column {
         Self { buffer: AVec::new(component_info.align), info: component_info }
     }
 
+    fn swap_with_last(&mut self, RowIndex(row): RowIndex) {
+        if row + 1 < self.no_chunks() {
+            let (left, right) = self.buffer.split_at_mut((row + 1) * self.info.size);
+            left[row * self.info.size..].swap_with_slice(right);
+        }
+    }
+
     pub fn no_chunks(&self) -> usize {
         if self.info.size == 0 {
             0
@@ -173,10 +189,7 @@ impl Column {
         }
 
         // Swap with last
-        if row + 1 < self.no_chunks() {
-            let (left, right) = self.buffer.split_at_mut((row + 1) * self.info.size);
-            left[row * self.info.size..].swap_with_slice(right);
-        }
+        self.swap_with_last(RowIndex(row));
 
         // Move last to other column
         other.buffer.resize(other.buffer.len() + other.info.size, MaybeUninit::zeroed());
@@ -201,6 +214,14 @@ impl Column {
             unsafe { self.call_drop(RowIndex(n)) };
         }
         self.buffer.truncate(target_chunks * self.info.size);
+    }
+
+    pub fn swap_drop(&mut self, row: RowIndex) {
+        self.swap_with_last(row);
+        let n = self.buffer.len() / self.info.size - 1;
+        // SAFETY: Immediately shrunk
+        unsafe { self.call_drop(RowIndex(n)) };
+        self.shrink_to_fit(n);
     }
 }
 
