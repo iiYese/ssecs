@@ -1,4 +1,6 @@
-use std::sync::Arc;
+use std::{cell::Cell, sync::Arc};
+
+use thread_local::ThreadLocal;
 
 use crate::{
     component::{COMPONENT_ENTRIES, ComponentInfo},
@@ -8,22 +10,19 @@ use crate::{
 
 pub(crate) mod command;
 pub(crate) mod core;
-pub(crate) mod mantle;
 
 use command::Command;
 use core::{Core, EntityLocation};
-use mantle::Mantle;
 
 pub struct World {
-    mantle: Mantle,
+    mantle: Arc<Mantle>,
 }
 
 // TODO: Commands
 impl World {
     pub fn new() -> Self {
-        let mut world = Self {
-            mantle: Mantle { core: Arc::new(Core::new()), commands: Arc::new(Default::default()) },
-        };
+        let mut world =
+            Self { mantle: Arc::new(Mantle { core: Core::new(), commands: Default::default() }) };
 
         for init in COMPONENT_ENTRIES {
             (init)(&mut world);
@@ -62,12 +61,26 @@ impl World {
     }
 
     pub(crate) fn flush(&mut self) {
-        let queues = Arc::get_mut(&mut self.mantle.commands).unwrap();
-        for cell in queues.into_iter() {
+        let mantle = Arc::get_mut(&mut self.mantle).unwrap();
+        for cell in (&mut mantle.commands).into_iter() {
             for command in cell.get_mut().drain(..) {
-                command.apply(Arc::get_mut(&mut self.mantle.core).unwrap())
+                command.apply(&mut mantle.core)
             }
         }
+    }
+}
+
+pub(crate) struct Mantle {
+    pub(crate) core: Core,
+    pub(crate) commands: ThreadLocal<Cell<Vec<Command>>>,
+}
+
+impl Mantle {
+    pub(crate) fn enqueue(&self, command: Command) {
+        let cell = self.commands.get_or(|| Cell::new(Vec::default()));
+        let mut queue = cell.take();
+        queue.push(command);
+        cell.set(queue);
     }
 }
 
