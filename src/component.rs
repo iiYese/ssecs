@@ -19,27 +19,32 @@ pub unsafe trait Component: Sized {
     fn init(_: &World);
     fn info() -> ComponentInfo;
     fn drop(bytes: &mut [MaybeUninit<u8>]);
-    fn default() -> &'static [MaybeUninit<u8>] {
-        struct DefaultOrPanic<T>(PhantomData<T>);
+    fn default() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
+        struct DefaultGetter<T>(PhantomData<T>);
+
         trait NoDefault<T> {
-            fn default() -> T;
+            fn get_default() -> Option<fn() -> &'static [MaybeUninit<u8>]>;
         }
 
         #[allow(dead_code)]
-        impl<T: Default> DefaultOrPanic<T> {
-            fn default() -> T {
-                T::default()
+        impl<T: Default> DefaultGetter<T> {
+            fn get_default() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
+                Some(|| {
+                    let leaked = ManuallyDrop::new(T::default());
+                    unsafe {
+                        std::slice::from_raw_parts((&raw const leaked).cast(), size_of::<Self>())
+                    }
+                })
             }
         }
 
-        impl<T> NoDefault<T> for DefaultOrPanic<T> {
-            fn default() -> T {
-                panic!("Type does not implement Default");
+        impl<T> NoDefault<T> for DefaultGetter<T> {
+            fn get_default() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
+                None
             }
         }
 
-        let leaked = ManuallyDrop::new(DefaultOrPanic::<Self>::default());
-        unsafe { std::slice::from_raw_parts((&raw const leaked).cast(), size_of::<Self>()) }
+        DefaultGetter::<Self>::get_default()
     }
 }
 
