@@ -15,10 +15,10 @@ pub type ColumnReadGuard<'a, T> = parking_lot::MappedRwLockReadGuard<'a, T>;
 new_key_type! { pub(crate) struct ArchetypeId; }
 const ARCHETYPE_SAO: usize = 8;
 
-pub(crate) fn into_bytes<T>(x: T) -> Box<[MaybeUninit<u8>]> {
-    let x = ManuallyDrop::new(x);
+pub(crate) fn into_bytes<T>(val: T) -> Box<[MaybeUninit<u8>]> {
+    let leaked = ManuallyDrop::new(val);
     let bytes: &[MaybeUninit<u8>] = unsafe {
-        std::slice::from_raw_parts((&raw const x).cast(), size_of::<T>()) //
+        std::slice::from_raw_parts((&raw const leaked).cast(), size_of::<T>()) //
     };
     bytes.into()
 }

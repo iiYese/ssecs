@@ -1,21 +1,46 @@
-use std::mem::MaybeUninit;
+use std::{
+    marker::PhantomData,
+    mem::{ManuallyDrop, MaybeUninit},
+};
 
 use linkme;
 
 use crate::{self as ssecs, entity::Entity, world::World};
 use ssecs_macros::*;
 
-pub type ComponentEntry = fn(world: &mut World);
+pub type ComponentEntry = fn(world: &World);
 
 #[linkme::distributed_slice]
 pub static COMPONENT_ENTRIES: [ComponentEntry];
 
 /// Should never be implemented manually
-pub unsafe trait Component {
+pub unsafe trait Component: Sized {
     fn id() -> Entity;
-    fn init(_: &mut World); // TODO: Remove mut
+    fn init(_: &World);
     fn info() -> ComponentInfo;
     fn drop(bytes: &mut [MaybeUninit<u8>]);
+    fn default() -> &'static [MaybeUninit<u8>] {
+        struct DefaultOrPanic<T>(PhantomData<T>);
+        trait NoDefault<T> {
+            fn default() -> T;
+        }
+
+        #[allow(dead_code)]
+        impl<T: Default> DefaultOrPanic<T> {
+            fn default() -> T {
+                T::default()
+            }
+        }
+
+        impl<T> NoDefault<T> for DefaultOrPanic<T> {
+            fn default() -> T {
+                panic!("Type does not implement Default");
+            }
+        }
+
+        let leaked = ManuallyDrop::new(DefaultOrPanic::<Self>::default());
+        unsafe { std::slice::from_raw_parts((&raw const leaked).cast(), size_of::<Self>()) }
+    }
 }
 
 #[derive(Clone, Copy, Component, Debug, PartialEq, Eq)]

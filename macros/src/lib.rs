@@ -30,7 +30,7 @@ pub fn component_derive(input: TokenStream) -> TokenStream {
                 }
             }
 
-            fn init(world: &mut ssecs::world::World) {
+            fn init(world: &ssecs::world::World) {
                 world.entity(#struct_name::id()).insert(#struct_name::info());
             }
 
