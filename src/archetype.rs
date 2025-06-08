@@ -205,7 +205,9 @@ impl Column {
     unsafe fn call_drop(&mut self, RowIndex(row): RowIndex) {
         let bytes = &mut self.buffer[row * self.info.size..][..self.info.size];
         debug_assert_eq!(bytes.len(), self.info.size);
-        (self.info.drop)(&mut self.buffer[row * self.info.size..][..self.info.size]);
+        unsafe {
+            (self.info.drop)(&mut self.buffer[row * self.info.size..][..self.info.size]);
+        }
     }
 
     pub fn shrink_to_fit(&mut self, target_chunks: usize) {
@@ -231,7 +233,7 @@ impl Drop for Column {
             return;
         }
         for n in (0..self.buffer.len()).step_by(self.info.size) {
-            (self.info.drop)(&mut self.buffer[n..][..self.info.size])
+            unsafe { (self.info.drop)(&mut self.buffer[n..][..self.info.size]) }
         }
     }
 }
