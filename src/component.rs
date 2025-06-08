@@ -18,16 +18,34 @@ pub unsafe trait Component: Sized {
     fn id() -> Entity;
     fn init(_: &World);
     fn info() -> ComponentInfo;
-    fn drop(bytes: &mut [MaybeUninit<u8>]);
-    fn default() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
-        struct DefaultGetter<T>(PhantomData<T>);
 
-        trait NoDefault<T> {
-            fn get_default() -> Option<fn() -> &'static [MaybeUninit<u8>]>;
+    fn get_erased_clone() -> Option<fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]> {
+        struct CloneGetter<T>(PhantomData<T>);
+        impl<T: Clone> CloneGetter<T> {
+            #[allow(dead_code)]
+            fn get_clone() -> Option<fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]> {
+                Some(|bytes| {
+                    let t = unsafe { (bytes.as_ptr() as *const T).as_ref() }.unwrap();
+                    let leaked = ManuallyDrop::new(t.clone());
+                    unsafe {
+                        std::slice::from_raw_parts((&raw const leaked).cast(), size_of::<Self>())
+                    }
+                })
+            }
         }
+        trait NoClone<T> {
+            fn get_clone() -> Option<fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]> {
+                None
+            }
+        }
+        impl<T> NoClone<T> for CloneGetter<T> {}
+        CloneGetter::<Self>::get_clone()
+    }
 
-        #[allow(dead_code)]
+    fn get_erased_default() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
+        struct DefaultGetter<T>(PhantomData<T>);
         impl<T: Default> DefaultGetter<T> {
+            #[allow(dead_code)]
             fn get_default() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
                 Some(|| {
                     let leaked = ManuallyDrop::new(T::default());
@@ -37,14 +55,17 @@ pub unsafe trait Component: Sized {
                 })
             }
         }
-
-        impl<T> NoDefault<T> for DefaultGetter<T> {
+        trait NoDefault<T> {
             fn get_default() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
                 None
             }
         }
-
+        impl<T> NoDefault<T> for DefaultGetter<T> {}
         DefaultGetter::<Self>::get_default()
+    }
+
+    fn erased_drop(bytes: &mut [std::mem::MaybeUninit<u8>]) {
+        unsafe { (bytes.as_ptr() as *mut Self).drop_in_place() }
     }
 }
 
@@ -54,6 +75,8 @@ pub struct ComponentInfo {
     pub(crate) align: usize,
     pub(crate) size: usize,
     pub(crate) id: Entity,
+    pub(crate) clone: Option<fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]>,
+    pub(crate) default: Option<fn() -> &'static [MaybeUninit<u8>]>,
     pub(crate) drop: fn(&mut [MaybeUninit<u8>]),
 }
 
@@ -63,9 +86,11 @@ impl ComponentInfo {
         align: usize,
         size: usize,
         id: Entity,
+        clone: Option<fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]>,
+        default: Option<fn() -> &'static [MaybeUninit<u8>]>,
         drop: fn(&mut [MaybeUninit<u8>]),
     ) -> Self {
-        Self { name, align, size, id, drop }
+        Self { name, align, size, id, clone, default, drop }
     }
 }
 
