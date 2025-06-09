@@ -33,7 +33,7 @@ pub struct Query {
 
 impl Clone for Query {
     fn clone(&self) -> Self {
-        Self { entity: self.entity, world: World { mantle: self.world.mantle.clone() } }
+        Self { entity: self.entity, world: World { crust: self.world.crust.clone() } }
     }
 }
 

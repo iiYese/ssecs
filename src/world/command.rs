@@ -1,6 +1,11 @@
-use std::mem::MaybeUninit;
+use std::mem::{ManuallyDrop, MaybeUninit};
 
-use crate::{archetype::FieldId, component::ComponentInfo, entity::Entity, world::core::Core};
+use crate::{
+    archetype::FieldId,
+    component::{Component, ComponentInfo},
+    entity::Entity,
+    world::core::Core,
+};
 
 // TODO: Batching
 // - Despawn is last: Ignore all other ops on entity
@@ -66,7 +71,16 @@ impl Command {
         Self { jump: 1, operation: Operation::Despawn(entity) }
     }
 
-    pub(crate) fn insert(
+    pub(crate) fn insert<C: Component>(val: C, entity: Entity) -> Self {
+        let leaked = ManuallyDrop::new(val);
+        let bytes: &[MaybeUninit<u8>] = unsafe {
+            std::slice::from_raw_parts((&raw const leaked).cast(), size_of::<C>()) //
+        };
+        // SAFETY: Safe because this is using static type info
+        unsafe { Self::insert_bytes(C::info(), bytes.into(), entity) }
+    }
+
+    pub(crate) unsafe fn insert_bytes(
         info: ComponentInfo,
         bytes: Box<[MaybeUninit<u8>]>,
         entity: Entity,

@@ -1,8 +1,8 @@
 use std::{
-    cell::{Cell, RefCell, UnsafeCell},
+    cell::{Cell, UnsafeCell},
     sync::{
         Arc,
-        atomic::{AtomicIsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
@@ -18,84 +18,93 @@ pub(crate) mod command;
 pub(crate) mod core;
 
 use command::Command;
-use core::{Core, EntityLocation};
+use core::Core;
 
 pub struct World {
-    pub(crate) mantle: Arc<Mantle>,
+    pub(crate) crust: Arc<Crust>,
+}
+
+pub(crate) struct Crust {
+    pub(crate) mantle: UnsafeCell<Mantle>,
+    pub(crate) read_write: AtomicUsize, // read(1..), write(usize::MAX), nothing(0)
 }
 
 pub(crate) struct Mantle {
-    pub(crate) core: UnsafeCell<Core>,
-    pub(crate) commands: RefCell<ThreadLocal<Cell<Vec<Command>>>>,
-    pub(crate) read_write: AtomicIsize,
+    pub(crate) core: Core,
+    pub(crate) commands: ThreadLocal<Cell<Vec<Command>>>,
 }
 
 impl Mantle {
     pub(crate) fn enqueue(&self, command: Command) {
-        let commands = self.commands.borrow();
-        let cell = commands.get_or(|| Cell::new(Vec::default()));
+        let cell = self.commands.get_or(|| Cell::new(Vec::default()));
         let mut queue = cell.take();
         queue.push(command);
         cell.set(queue);
     }
 
+    pub(crate) fn flush(&mut self) {
+        for cell in (&mut self.commands).iter_mut() {
+            for command in cell.get_mut().drain(..) {
+                command.apply(&mut self.core)
+            }
+        }
+    }
+}
+
+impl Crust {
     pub(crate) fn begin_read(&self) {
-        use Ordering::SeqCst;
-        if let Err(_) = self //
-            .read_write
-            .fetch_update(SeqCst, SeqCst, |old| (-1 < old).then_some(old + 1))
-        {
+        if let Err(_) = self.read_write.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+            (old < usize::MAX).then_some(old + 1)
+        }) {
             panic!("Tried to read while structurally mutating");
         }
     }
 
     pub(crate) fn end_read(&self) {
-        use Ordering::SeqCst;
-        if let Err(_) = self //
-            .read_write
-            .fetch_update(SeqCst, SeqCst, |old| (0 < old).then_some(old - 1))
-        {
+        if let Err(_) = self.read_write.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+            (0 < old && old < usize::MAX).then_some(old - 1)
+        }) {
             panic!("No read to end");
         }
     }
 
-    pub(crate) fn core<R>(&self, mut func: impl FnMut(&Core) -> R) -> R {
+    pub(crate) fn begin_write(&self) {
+        if let Err(_) = self.read_write.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+            (0 == old).then_some(usize::MAX)
+        }) {
+            panic!("Tried to structurally mutate while reading");
+        }
+    }
+
+    pub(crate) fn end_write(&self) {
+        if let Err(_) = self.read_write.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+            (old == usize::MAX).then_some(0)
+        }) {
+            panic!("No write to end");
+        }
+    }
+
+    pub(crate) fn mantle<R>(&self, func: impl FnOnce(&Mantle) -> R) -> R {
         self.begin_read();
-        let ret = func(unsafe { self.core.get().as_ref().unwrap() });
+        let ret = func(unsafe { self.mantle.get().as_ref().unwrap() });
         self.end_read();
         ret
     }
 
-    pub(crate) fn flush(&self) {
-        use Ordering::SeqCst;
-        if let Err(_) = self //
-            .read_write
-            .fetch_update(SeqCst, SeqCst, |old| (0 == old).then_some(old - 1))
-        {
-            panic!("Tried to structurally mutate while reading");
-        }
-
-        // SAFETY: When `read_write == 0` nothing should be aliasing core
-        let core = unsafe { self.core.get().as_mut().unwrap() };
-        let mut commands = self.commands.borrow_mut();
-
-        for cell in (&mut *commands).iter_mut() {
-            for command in cell.get_mut().drain(..) {
-                command.apply(core)
-            }
-        }
-
-        self.read_write.fetch_update(SeqCst, SeqCst, |_| Some(0)).unwrap();
+    pub(crate) fn mantle_mut<R>(&self, func: impl FnOnce(&mut Mantle) -> R) -> R {
+        self.begin_write();
+        let ret = func(unsafe { self.mantle.get().as_mut().unwrap() });
+        self.end_write();
+        ret
     }
 }
 
 impl World {
     pub fn new() -> Self {
         let mut world = Self {
-            mantle: Arc::new(Mantle {
-                core: UnsafeCell::new(Core::new()),
-                commands: Default::default(),
-                read_write: AtomicIsize::new(0),
+            crust: Arc::new(Crust {
+                read_write: AtomicUsize::new(0),
+                mantle: UnsafeCell::new(Mantle { core: Core::new(), commands: Default::default() }),
             }),
         };
 
@@ -113,30 +122,34 @@ impl World {
     }
 
     pub fn get_entity(&self, entity: Entity) -> Option<View<'_>> {
-        self.mantle
-            .core(|core| core.entity_location_locking(entity))
+        self.crust
+            .mantle(|mantle| mantle.core.entity_location_locking(entity))
             .map(|_| View { entity, world: &self })
     }
 
     pub fn spawn(&self) -> View<'_> {
-        let entity = self.mantle.core(|core| core.create_uninitialized_entity());
-        self.mantle.enqueue(Command::spawn(entity));
-        View { entity, world: &self }
+        self.crust.mantle(|mantle| {
+            let entity = mantle.core.create_uninitialized_entity();
+            mantle.enqueue(Command::spawn(entity));
+            View { entity, world: &self }
+        })
     }
 
     pub fn component_info(&self, component: Entity) -> Option<ComponentInfo> {
-        self.mantle.core(|core| core.component_info_locking(component))
+        self.crust.mantle(|mantle| mantle.core.component_info_locking(component))
     }
 
     pub fn query(&self) -> Query {
-        Query::new(World { mantle: self.mantle.clone() })
+        Query::new(World { crust: self.crust.clone() })
     }
 
     /// Will panic if:
     /// - Attempted while something is reading (query, observer, system, etc.)
     /// - There are lingering column guards on locations being moved
     pub fn flush(&self) {
-        self.mantle.flush();
+        self.crust.mantle_mut(|mantle| {
+            mantle.flush();
+        });
     }
 }
 

@@ -4,10 +4,10 @@ new_key_type! { pub struct Entity; }
 
 use crate::{
     NonZstOrPanic,
-    archetype::{ColumnReadGuard, FieldId, into_bytes},
+    archetype::{ColumnReadGuard, FieldId},
     component::Component,
     query::AccessTuple,
-    world::{World, command::Command, core::EntityLocation},
+    world::{Mantle, World, command::Command, core::EntityLocation},
 };
 
 impl Entity {
@@ -41,21 +41,21 @@ impl View<'_> {
     }
 
     pub fn insert<C: Component>(self, component: C) -> Self {
-        self.world.mantle.enqueue(Command::insert(
-            C::info(),
-            into_bytes(component),
-            self.entity,
-        ));
+        self.world.crust.mantle(|mantle| {
+            mantle.enqueue(Command::insert(component, self.entity));
+        });
         self
     }
 
     pub fn remove<Id: Into<FieldId>>(self, id: Id) -> Self {
-        self.world.mantle.enqueue(Command::remove(id.into(), self.entity));
+        self.world.crust.mantle(|mantle| {
+            mantle.enqueue(Command::remove(id.into(), self.entity));
+        });
         self
     }
 
     pub fn has<Id: Into<FieldId> + Copy>(&self, field: Id) -> bool {
-        self.world.mantle.core(|core| {
+        self.world.crust.mantle(|Mantle { core, .. }| {
             core.entity_location_locking(self.entity)
                 .filter(|location| core.archetype_has(field.into(), location.archetype))
                 .is_some()
@@ -65,9 +65,9 @@ impl View<'_> {
     /// Will panic if called in the middle of a flush
     pub fn get<T: Component>(&self) -> Option<ColumnReadGuard<T>> {
         let _ = T::NON_ZST_OR_PANIC;
-        self.world.mantle.begin_read();
+        self.world.crust.begin_read();
         // SAFETY: World aliasing is temporary
-        let core = unsafe { self.world.mantle.core.get().as_ref().unwrap() };
+        let core = unsafe { &self.world.crust.mantle.get().as_ref().unwrap().core };
         let location = core.entity_location_locking(self.entity).unwrap();
         let out = core.get_bytes(T::id().into(), location).map(|bytes| {
             ColumnReadGuard::map(bytes, |bytes| {
@@ -75,7 +75,7 @@ impl View<'_> {
                 unsafe { (bytes.as_ptr() as *const T).as_ref() }.unwrap()
             })
         });
-        self.world.mantle.end_read();
+        self.world.crust.end_read();
         out
     }
 
@@ -98,7 +98,7 @@ impl View<'_> {
     }
 
     pub fn despawn(self) {
-        self.world.mantle.enqueue(Command::despawn(self.entity));
+        self.world.crust.mantle(|mantle| mantle.enqueue(Command::despawn(self.entity)));
     }
 }
 
