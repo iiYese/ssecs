@@ -32,7 +32,6 @@ impl Entity {
 #[derive(Clone, Copy)]
 pub struct View<'a> {
     pub(crate) entity: Entity,
-    pub(crate) location: EntityLocation,
     pub(crate) world: &'a World,
 }
 
@@ -41,8 +40,8 @@ impl View<'_> {
         self.entity
     }
 
-    pub fn insert<C: Component>(&self, component: C) -> &Self {
-        self.world.enqueue(Command::insert(
+    pub fn insert<C: Component>(self, component: C) -> Self {
+        self.world.mantle.enqueue(Command::insert(
             C::info(),
             into_bytes(component),
             self.entity,
@@ -50,25 +49,34 @@ impl View<'_> {
         self
     }
 
-    pub fn remove<Id: Into<FieldId>>(&self, id: Id) -> &Self {
-        self.world.enqueue(Command::remove(id.into(), self.entity));
+    pub fn remove<Id: Into<FieldId>>(self, id: Id) -> Self {
+        self.world.mantle.enqueue(Command::remove(id.into(), self.entity));
         self
     }
 
-    pub fn has<Id: Into<FieldId>>(&self, field: Id) -> bool {
-        let mantle = unsafe { self.world.mantle() };
-        mantle.core.archetype_has(field.into(), self.location.archetype)
+    pub fn has<Id: Into<FieldId> + Copy>(&self, field: Id) -> bool {
+        self.world.mantle.core(|core| {
+            core.entity_location_locking(self.entity)
+                .filter(|location| core.archetype_has(field.into(), location.archetype))
+                .is_some()
+        })
     }
 
+    /// Will panic if called in the middle of a flush
     pub fn get<T: Component>(&self) -> Option<ColumnReadGuard<T>> {
         let _ = T::NON_ZST_OR_PANIC;
-        let mantle = unsafe { self.world.mantle() };
-        mantle.core.get_bytes(T::id().into(), self.location).map(|bytes| {
+        self.world.mantle.begin_read();
+        // SAFETY: World aliasing is temporary
+        let core = unsafe { self.world.mantle.core.get().as_ref().unwrap() };
+        let location = core.entity_location_locking(self.entity).unwrap();
+        let out = core.get_bytes(T::id().into(), location).map(|bytes| {
             ColumnReadGuard::map(bytes, |bytes| {
                 // SAFETY: Don't need to check TypeId because component's Entity id acts as TypeId
                 unsafe { (bytes.as_ptr() as *const T).as_ref() }.unwrap()
             })
-        })
+        });
+        self.world.mantle.end_read();
+        out
     }
 
     pub fn fields<Q: AccessTuple>(&self) -> Q::Out {
@@ -90,7 +98,7 @@ impl View<'_> {
     }
 
     pub fn despawn(self) {
-        self.world.enqueue(Command::despawn(self.entity));
+        self.world.mantle.enqueue(Command::despawn(self.entity));
     }
 }
 
