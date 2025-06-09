@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    mem::{ManuallyDrop, MaybeUninit},
-};
+use std::{collections::HashMap, mem::MaybeUninit};
 
 use aligned_vec::{AVec, RuntimeAlign};
 use derive_more::{Deref, DerefMut};

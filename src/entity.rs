@@ -7,7 +7,7 @@ use crate::{
     archetype::{ColumnReadGuard, FieldId},
     component::Component,
     query::AccessTuple,
-    world::{Mantle, World, command::Command, core::EntityLocation},
+    world::{Mantle, World, command::Command},
 };
 
 impl Entity {
