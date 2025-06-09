@@ -7,7 +7,7 @@ use crate::{
     archetype::{ColumnReadGuard, FieldId, into_bytes},
     component::Component,
     query::AccessTuple,
-    world::{Mantle, command::Command, core::EntityLocation},
+    world::{World, command::Command, core::EntityLocation},
 };
 
 impl Entity {
@@ -29,10 +29,11 @@ impl Entity {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct View<'a> {
     pub(crate) entity: Entity,
     pub(crate) location: EntityLocation,
-    pub(crate) mantle: &'a Mantle,
+    pub(crate) world: &'a World,
 }
 
 impl View<'_> {
@@ -41,7 +42,7 @@ impl View<'_> {
     }
 
     pub fn insert<C: Component>(&self, component: C) -> &Self {
-        self.mantle.enqueue(Command::insert(
+        self.world.enqueue(Command::insert(
             C::info(),
             into_bytes(component),
             self.entity,
@@ -50,17 +51,19 @@ impl View<'_> {
     }
 
     pub fn remove<Id: Into<FieldId>>(&self, id: Id) -> &Self {
-        self.mantle.enqueue(Command::remove(id.into(), self.entity));
+        self.world.enqueue(Command::remove(id.into(), self.entity));
         self
     }
 
     pub fn has<Id: Into<FieldId>>(&self, field: Id) -> bool {
-        self.mantle.core.archetype_has(field.into(), self.location.archetype)
+        let mantle = unsafe { self.world.mantle() };
+        mantle.core.archetype_has(field.into(), self.location.archetype)
     }
 
     pub fn get<T: Component>(&self) -> Option<ColumnReadGuard<T>> {
         let _ = T::NON_ZST_OR_PANIC;
-        self.mantle.core.get_bytes(T::id().into(), self.location).map(|bytes| {
+        let mantle = unsafe { self.world.mantle() };
+        mantle.core.get_bytes(T::id().into(), self.location).map(|bytes| {
             ColumnReadGuard::map(bytes, |bytes| {
                 // SAFETY: Don't need to check TypeId because component's Entity id acts as TypeId
                 unsafe { (bytes.as_ptr() as *const T).as_ref() }.unwrap()
@@ -76,7 +79,22 @@ impl View<'_> {
         todo!()
     }
 
-    pub fn despawn(self) {
-        self.mantle.enqueue(Command::despawn(self.entity));
+    pub fn duplicate(&self, options: DupeOpts) -> View<'_> {
+        let destination = self.world.spawn();
+        self.duplicate_into(options, destination);
+        destination
     }
+
+    pub fn duplicate_into(&self, options: DupeOpts, destination: View<'_>) {
+        todo!();
+    }
+
+    pub fn despawn(self) {
+        self.world.enqueue(Command::despawn(self.entity));
+    }
+}
+
+pub enum DupeOpts {
+    OrDefault,
+    OrPanic,
 }

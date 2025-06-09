@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use crate::{
-    entity::Entity,
-    world::{Mantle, World},
-};
+use crate::{entity::Entity, world::World};
 
 pub trait AccessTuple {
     type Out;
@@ -29,16 +26,21 @@ impl From<&'_ mut Entity> for Access {
     }
 }
 
-#[derive(Clone)]
 pub struct Query {
     entity: Entity,
-    mantle: Arc<Mantle>,
+    world: World,
+}
+
+impl Clone for Query {
+    fn clone(&self) -> Self {
+        Self { entity: self.entity, world: World { mantle: self.world.mantle.clone() } }
+    }
 }
 
 impl Query {
-    pub(crate) fn new(mantle: Arc<Mantle>) -> Self {
+    pub(crate) fn new(world: World) -> Self {
         Self {
-            mantle,
+            world,
             entity: Entity::null(), // TODO
         }
     }

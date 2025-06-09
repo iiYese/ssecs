@@ -1,4 +1,7 @@
-use std::{cell::Cell, sync::Arc};
+use std::{
+    cell::{Cell, UnsafeCell},
+    sync::Arc,
+};
 
 use thread_local::ThreadLocal;
 
@@ -15,14 +18,22 @@ use command::Command;
 use core::{Core, EntityLocation};
 
 pub struct World {
-    mantle: Arc<Mantle>,
+    pub(crate) mantle: Arc<UnsafeCell<Mantle>>,
 }
 
-// TODO: Commands
+pub(crate) struct Mantle {
+    pub(crate) core: Core,
+    pub(crate) commands: ThreadLocal<Cell<Vec<Command>>>,
+}
+
 impl World {
     pub fn new() -> Self {
-        let mut world =
-            Self { mantle: Arc::new(Mantle { core: Core::new(), commands: Default::default() }) };
+        let mut world = Self {
+            mantle: Arc::new(UnsafeCell::new(Mantle {
+                core: Core::new(),
+                commands: Default::default(),
+            })),
+        };
 
         for init in COMPONENT_ENTRIES {
             (init)(&mut world);
@@ -34,50 +45,56 @@ impl World {
     }
 
     pub fn entity(&self, entity: Entity) -> View<'_> {
-        let location = self.mantle.core.entity_location_locking(entity).unwrap();
-        View { mantle: &self.mantle, entity, location }
+        let mantle = unsafe { self.mantle() };
+        let location = mantle.core.entity_location_locking(entity).unwrap();
+        View { world: &self, entity, location }
     }
 
     pub fn get_entity(&self, entity: Entity) -> Option<View<'_>> {
-        self.mantle.core.entity_location_locking(entity).map(|location| View {
+        let mantle = unsafe { self.mantle() };
+        mantle.core.entity_location_locking(entity).map(|location| View {
             entity,
-            mantle: &self.mantle,
+            world: &self,
             location,
         })
     }
 
     pub fn spawn(&self) -> View<'_> {
-        let entity = self.mantle.core.create_uninitialized_entity();
-        self.mantle.enqueue(Command::spawn(entity));
-        View { entity, mantle: &self.mantle, location: EntityLocation::uninitialized() }
+        let mantle = unsafe { self.mantle() };
+        let entity = mantle.core.create_uninitialized_entity();
+        self.enqueue(Command::spawn(entity));
+        View { entity, world: &self, location: EntityLocation::uninitialized() }
     }
 
     pub fn component_info(&self, component: Entity) -> Option<ComponentInfo> {
-        self.mantle.core.component_info_locking(component)
+        let mantle = unsafe { self.mantle() };
+        mantle.core.component_info_locking(component)
     }
 
     pub fn query(&self) -> Query {
-        Query::new(self.mantle.clone())
+        Query::new(World { mantle: self.mantle.clone() })
     }
 
-    pub(crate) fn flush(&mut self) {
-        let mantle = Arc::get_mut(&mut self.mantle).unwrap();
+    pub fn flush(&mut self) {
+        let mantle = unsafe { self.mantle_mut() };
         for cell in (&mut mantle.commands).into_iter() {
             for command in cell.get_mut().drain(..) {
                 command.apply(&mut mantle.core)
             }
         }
     }
-}
 
-pub(crate) struct Mantle {
-    pub(crate) core: Core,
-    pub(crate) commands: ThreadLocal<Cell<Vec<Command>>>,
-}
+    pub(crate) unsafe fn mantle(&self) -> &Mantle {
+        unsafe { self.mantle.get().as_ref().unwrap() }
+    }
 
-impl Mantle {
+    pub(crate) unsafe fn mantle_mut(&self) -> &mut Mantle {
+        unsafe { self.mantle.get().as_mut().unwrap() }
+    }
+
     pub(crate) fn enqueue(&self, command: Command) {
-        let cell = self.commands.get_or(|| Cell::new(Vec::default()));
+        let mantle = unsafe { self.mantle() };
+        let cell = mantle.commands.get_or(|| Cell::new(Vec::default()));
         let mut queue = cell.take();
         queue.push(command);
         cell.set(queue);
