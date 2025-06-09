@@ -112,8 +112,8 @@ impl Core {
 
         // Move bytes from old columns to new columns
         old_archetype.signature.each_shared(&new_archetype.signature, |n, m| {
-            let mut old_column = old_archetype.columns[n].write();
-            let mut new_column = new_archetype.columns[m].write();
+            let mut old_column = old_archetype.columns[n].try_write().unwrap();
+            let mut new_column = new_archetype.columns[m].try_write().unwrap();
             old_column.move_into(&mut new_column, old_location.row);
         });
 

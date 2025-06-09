@@ -250,4 +250,15 @@ mod tests {
         assert_eq!(false, e.has(RefCounted::id()));
         assert_eq!(1, Arc::strong_count(&val));
     }
+
+    #[test]
+    #[should_panic]
+    fn flush_with_lock() {
+        let world = World::new();
+        let e = world.spawn().insert(Foo(0));
+        world.flush();
+        let _f = e.get::<Foo>().unwrap();
+        e.insert(Bar(0));
+        world.flush();
+    }
 }
