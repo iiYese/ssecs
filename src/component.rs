@@ -24,12 +24,10 @@ pub unsafe trait Component: Sized {
         impl<T: Clone> CloneGetter<T> {
             #[allow(dead_code)]
             fn get_clone() -> Option<unsafe fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]> {
-                Some(|bytes| {
-                    let t = unsafe { (bytes.as_ptr() as *const T).as_ref() }.unwrap();
+                Some(|bytes| unsafe {
+                    let t = (bytes.as_ptr() as *const T).as_ref().unwrap();
                     let leaked = ManuallyDrop::new(t.clone());
-                    unsafe {
-                        std::slice::from_raw_parts((&raw const leaked).cast(), size_of::<Self>())
-                    }
+                    std::slice::from_raw_parts((&raw const leaked).cast(), size_of::<Self>())
                 })
             }
         }
@@ -42,11 +40,11 @@ pub unsafe trait Component: Sized {
         CloneGetter::<Self>::get_clone()
     }
 
-    fn get_erased_default() -> Option<unsafe fn() -> &'static [MaybeUninit<u8>]> {
+    fn get_erased_default() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
         struct DefaultGetter<T>(PhantomData<T>);
         impl<T: Default> DefaultGetter<T> {
             #[allow(dead_code)]
-            fn get_default() -> Option<unsafe fn() -> &'static [MaybeUninit<u8>]> {
+            fn get_default() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
                 Some(|| {
                     let leaked = ManuallyDrop::new(T::default());
                     unsafe {
@@ -56,7 +54,7 @@ pub unsafe trait Component: Sized {
             }
         }
         trait NoDefault<T> {
-            fn get_default() -> Option<unsafe fn() -> &'static [MaybeUninit<u8>]> {
+            fn get_default() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
                 None
             }
         }
@@ -76,7 +74,7 @@ pub struct ComponentInfo {
     pub(crate) size: usize,
     pub(crate) id: Entity,
     pub(crate) clone: Option<unsafe fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]>,
-    pub(crate) default: Option<unsafe fn() -> &'static [MaybeUninit<u8>]>,
+    pub(crate) default: Option<fn() -> &'static [MaybeUninit<u8>]>,
     pub(crate) drop: unsafe fn(&mut [MaybeUninit<u8>]),
 }
 
@@ -87,7 +85,7 @@ impl ComponentInfo {
         size: usize,
         id: Entity,
         clone: Option<unsafe fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]>,
-        default: Option<unsafe fn() -> &'static [MaybeUninit<u8>]>,
+        default: Option<fn() -> &'static [MaybeUninit<u8>]>,
         drop: unsafe fn(&mut [MaybeUninit<u8>]),
     ) -> Self {
         Self { name, align, size, id, clone, default, drop }
