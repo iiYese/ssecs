@@ -1,13 +1,12 @@
 use std::{collections::HashMap, mem::MaybeUninit};
 
 use derive_more::{Deref, DerefMut};
-use parking_lot::{Mutex, RwLock, RwLockReadGuard};
+use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
 use slotmap::SlotMap;
 
 use crate::{
     archetype::{
-        Archetype, ArchetypeEdge, ArchetypeId, Column, ColumnIndex, ColumnReadGuard, FieldId,
-        RowIndex, Signature,
+        Archetype, ArchetypeEdge, ArchetypeId, Column, ColumnIndex, FieldId, RowIndex, Signature,
     },
     component::{COMPONENT_ENTRIES, Component, ComponentInfo},
     entity::Entity,
@@ -112,9 +111,9 @@ impl Core {
 
         // Move bytes from old columns to new columns
         old_archetype.signature.each_shared(&new_archetype.signature, |n, m| {
-            let mut old_column = old_archetype.columns[n].try_write().unwrap();
-            let mut new_column = new_archetype.columns[m].try_write().unwrap();
-            old_column.move_into(&mut new_column, old_location.row);
+            let old_column = old_archetype.columns[n].get_mut();
+            let new_column = new_archetype.columns[m].get_mut();
+            old_column.move_into(new_column, old_location.row);
         });
 
         // Update entity locations
@@ -242,7 +241,7 @@ impl Core {
         &self,
         field: FieldId,
         entity_location: EntityLocation,
-    ) -> Option<ColumnReadGuard<[MaybeUninit<u8>]>> {
+    ) -> Option<MappedRwLockReadGuard<[MaybeUninit<u8>]>> {
         self.field_index.get(&field).and_then(|field_locations| {
             let column = self
                 .archetypes

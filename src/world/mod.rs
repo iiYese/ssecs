@@ -1,11 +1,13 @@
 use std::{
     cell::{Cell, UnsafeCell},
+    ops::{Deref, DerefMut},
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
 };
 
+use parking_lot::MappedRwLockReadGuard;
 use thread_local::ThreadLocal;
 
 use crate::{
@@ -26,7 +28,7 @@ pub struct World {
 
 pub(crate) struct Crust {
     pub(crate) mantle: UnsafeCell<Mantle>,
-    pub(crate) read_write: AtomicUsize, // read(1..), write(usize::MAX), nothing(0)
+    pub(crate) flush_guard: AtomicUsize, // read(1..), write(usize::MAX), nothing(0)
 }
 
 pub(crate) struct Mantle {
@@ -52,32 +54,32 @@ impl Mantle {
 }
 
 impl Crust {
-    pub(crate) fn begin_read(&self) {
-        if let Err(_) = self.read_write.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+    pub(crate) fn begin_read(flush_guard: &AtomicUsize) {
+        if let Err(_) = flush_guard.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
             (old < usize::MAX).then_some(old + 1)
         }) {
             panic!("Tried to read while structurally mutating");
         }
     }
 
-    pub(crate) fn end_read(&self) {
-        if let Err(_) = self.read_write.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+    pub(crate) fn end_read(flush_guard: &AtomicUsize) {
+        if let Err(_) = flush_guard.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
             (0 < old && old < usize::MAX).then_some(old - 1)
         }) {
             panic!("No read to end");
         }
     }
 
-    pub(crate) fn begin_write(&self) {
-        if let Err(_) = self.read_write.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+    pub(crate) fn begin_write(flush_guard: &AtomicUsize) {
+        if let Err(_) = flush_guard.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
             (0 == old).then_some(usize::MAX)
         }) {
             panic!("Tried to structurally mutate while reading");
         }
     }
 
-    pub(crate) fn end_write(&self) {
-        if let Err(_) = self.read_write.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+    pub(crate) fn end_write(flush_guard: &AtomicUsize) {
+        if let Err(_) = flush_guard.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
             (old == usize::MAX).then_some(0)
         }) {
             panic!("No write to end");
@@ -85,16 +87,16 @@ impl Crust {
     }
 
     pub(crate) fn mantle<R>(&self, func: impl FnOnce(&Mantle) -> R) -> R {
-        self.begin_read();
+        Self::begin_read(&self.flush_guard);
         let ret = func(unsafe { self.mantle.get().as_ref().unwrap() });
-        self.end_read();
+        Self::end_read(&self.flush_guard);
         ret
     }
 
     pub(crate) fn mantle_mut<R>(&self, func: impl FnOnce(&mut Mantle) -> R) -> R {
-        self.begin_write();
+        Self::begin_write(&self.flush_guard);
         let ret = func(unsafe { self.mantle.get().as_mut().unwrap() });
-        self.end_write();
+        Self::end_write(&self.flush_guard);
         ret
     }
 }
@@ -103,7 +105,7 @@ impl World {
     pub fn new() -> Self {
         let mut world = Self {
             crust: Arc::new(Crust {
-                read_write: AtomicUsize::new(0),
+                flush_guard: AtomicUsize::new(0),
                 mantle: UnsafeCell::new(Mantle { core: Core::new(), commands: Default::default() }),
             }),
         };
@@ -150,6 +152,35 @@ impl World {
         self.crust.mantle_mut(|mantle| {
             mantle.flush();
         });
+    }
+}
+
+pub struct ColumnReadGuard<'a, T> {
+    mapped_guard: MappedRwLockReadGuard<'a, T>,
+    flush_guard: *const AtomicUsize,
+}
+
+impl<'a, T> ColumnReadGuard<'a, T> {
+    pub(crate) fn new(
+        mapped_guard: MappedRwLockReadGuard<'a, T>,
+        flush_guard: &AtomicUsize,
+    ) -> Self {
+        Crust::begin_read(flush_guard);
+        Self { mapped_guard, flush_guard }
+    }
+}
+
+impl<T> Deref for ColumnReadGuard<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &*self.mapped_guard
+    }
+}
+
+impl<T> Drop for ColumnReadGuard<'_, T> {
+    fn drop(&mut self) {
+        // SAFETY: Always safe because atomic
+        Crust::end_read(unsafe { self.flush_guard.as_ref().unwrap() });
     }
 }
 

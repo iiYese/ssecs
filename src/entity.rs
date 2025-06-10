@@ -1,13 +1,14 @@
+use parking_lot::MappedRwLockReadGuard;
 use slotmap::{KeyData, new_key_type};
 
 new_key_type! { pub struct Entity; }
 
 use crate::{
     NonZstOrPanic,
-    archetype::{ColumnReadGuard, FieldId},
+    archetype::FieldId,
     component::Component,
     query::AccessTuple,
-    world::{Mantle, World, command::Command},
+    world::{ColumnReadGuard, Crust, Mantle, World, command::Command},
 };
 
 impl Entity {
@@ -65,17 +66,20 @@ impl View<'_> {
     /// Will panic if called in the middle of a flush
     pub fn get<T: Component>(&self) -> Option<ColumnReadGuard<T>> {
         let _ = T::NON_ZST_OR_PANIC;
-        self.world.crust.begin_read();
+        Crust::begin_read(&self.world.crust.flush_guard);
         // SAFETY: World aliasing is temporary
         let core = unsafe { &self.world.crust.mantle.get().as_ref().unwrap().core };
         let location = core.entity_location_locking(self.entity).unwrap();
         let out = core.get_bytes(T::id().into(), location).map(|bytes| {
-            ColumnReadGuard::map(bytes, |bytes| {
-                // SAFETY: Don't need to check TypeId because component's Entity id acts as TypeId
-                unsafe { (bytes.as_ptr() as *const T).as_ref() }.unwrap()
-            })
+            ColumnReadGuard::new(
+                MappedRwLockReadGuard::map(bytes, |bytes| {
+                    // SAFETY: Don't TypeId check not needed because Entity id acts as TypeId
+                    unsafe { (bytes.as_ptr() as *const T).as_ref() }.unwrap()
+                }),
+                &self.world.crust.flush_guard,
+            )
         });
-        self.world.crust.end_read();
+        Crust::end_read(&self.world.crust.flush_guard);
         out
     }
 
