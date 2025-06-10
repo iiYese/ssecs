@@ -1,3 +1,8 @@
+use std::{
+    ops::{Deref, DerefMut},
+    sync::atomic::AtomicUsize,
+};
+
 use parking_lot::MappedRwLockReadGuard;
 use slotmap::{KeyData, new_key_type};
 
@@ -8,7 +13,7 @@ use crate::{
     archetype::FieldId,
     component::Component,
     query::AccessTuple,
-    world::{ColumnReadGuard, Crust, Mantle, World, command::Command},
+    world::{Crust, Mantle, World, command::Command},
 };
 
 impl Entity {
@@ -103,6 +108,35 @@ impl View<'_> {
 
     pub fn despawn(self) {
         self.world.crust.mantle(|mantle| mantle.enqueue(Command::despawn(self.entity)));
+    }
+}
+
+pub struct ColumnReadGuard<'a, T> {
+    mapped_guard: MappedRwLockReadGuard<'a, T>,
+    flush_guard: *const AtomicUsize,
+}
+
+impl<'a, T> ColumnReadGuard<'a, T> {
+    pub(crate) fn new(
+        mapped_guard: MappedRwLockReadGuard<'a, T>,
+        flush_guard: &AtomicUsize,
+    ) -> Self {
+        Crust::begin_read(flush_guard);
+        Self { mapped_guard, flush_guard }
+    }
+}
+
+impl<T> Deref for ColumnReadGuard<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &*self.mapped_guard
+    }
+}
+
+impl<T> Drop for ColumnReadGuard<'_, T> {
+    fn drop(&mut self) {
+        // SAFETY: Always safe because atomic
+        Crust::end_read(unsafe { self.flush_guard.as_ref().unwrap() });
     }
 }
 

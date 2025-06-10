@@ -1,13 +1,11 @@
 use std::{
     cell::{Cell, UnsafeCell},
-    ops::{Deref, DerefMut},
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
 };
 
-use parking_lot::MappedRwLockReadGuard;
 use thread_local::ThreadLocal;
 
 use crate::{
@@ -152,35 +150,6 @@ impl World {
         self.crust.mantle_mut(|mantle| {
             mantle.flush();
         });
-    }
-}
-
-pub struct ColumnReadGuard<'a, T> {
-    mapped_guard: MappedRwLockReadGuard<'a, T>,
-    flush_guard: *const AtomicUsize,
-}
-
-impl<'a, T> ColumnReadGuard<'a, T> {
-    pub(crate) fn new(
-        mapped_guard: MappedRwLockReadGuard<'a, T>,
-        flush_guard: &AtomicUsize,
-    ) -> Self {
-        Crust::begin_read(flush_guard);
-        Self { mapped_guard, flush_guard }
-    }
-}
-
-impl<T> Deref for ColumnReadGuard<'_, T> {
-    type Target = T;
-    fn deref(&self) -> &Self::Target {
-        &*self.mapped_guard
-    }
-}
-
-impl<T> Drop for ColumnReadGuard<'_, T> {
-    fn drop(&mut self) {
-        // SAFETY: Always safe because atomic
-        Crust::end_read(unsafe { self.flush_guard.as_ref().unwrap() });
     }
 }
 
