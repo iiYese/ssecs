@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     ops::{Deref, DerefMut},
     sync::atomic::AtomicUsize,
 };
@@ -13,7 +14,7 @@ use crate::{
     archetype::FieldId,
     component::Component,
     query::AccessTuple,
-    world::{Crust, Mantle, World, command::Command},
+    world::{Crust, Mantle, World, command::Command, core::EntityLocation},
 };
 
 impl Entity {
@@ -60,7 +61,7 @@ impl View<'_> {
         self
     }
 
-    pub fn has<Id: Into<FieldId> + Copy>(&self, field: Id) -> bool {
+    pub fn has<Id: Into<FieldId> + Copy>(self, field: Id) -> bool {
         self.world.crust.mantle(|Mantle { core, .. }| {
             core.entity_location_locking(self.entity)
                 .filter(|location| core.archetype_has(field.into(), location.archetype))
@@ -96,13 +97,13 @@ impl View<'_> {
         todo!()
     }
 
-    pub fn duplicate(&self, options: DupeOpts) -> View<'_> {
+    pub fn duplicate(&self, options: DupeOpts) -> View {
         let destination = self.world.spawn();
         self.duplicate_into(options, destination);
         destination
     }
 
-    pub fn duplicate_into(&self, options: DupeOpts, destination: View<'_>) {
+    pub fn duplicate_into(&self, options: DupeOpts, destination: View) {
         todo!();
     }
 

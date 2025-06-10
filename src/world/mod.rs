@@ -12,6 +12,7 @@ use crate::{
     component::{COMPONENT_ENTRIES, ComponentInfo},
     entity::{Entity, View},
     query::Query,
+    world::core::EntityLocation,
 };
 
 pub(crate) mod command;
@@ -26,7 +27,7 @@ pub struct World {
 
 pub(crate) struct Crust {
     pub(crate) mantle: UnsafeCell<Mantle>,
-    pub(crate) flush_guard: AtomicUsize, // read(1..), write(usize::MAX), nothing(0)
+    pub(crate) flush_guard: AtomicUsize, // nothing(0), flush(usize::MAX), blocked(1..usize::MAX)
 }
 
 pub(crate) struct Mantle {
@@ -45,7 +46,7 @@ impl Mantle {
     pub(crate) fn flush(&mut self) {
         for cell in (&mut self.commands).iter_mut() {
             for command in cell.get_mut().drain(..) {
-                command.apply(&mut self.core)
+                command.apply(&mut self.core);
             }
         }
     }
@@ -68,7 +69,7 @@ impl Crust {
         }
     }
 
-    pub(crate) fn begin_write(flush_guard: &AtomicUsize) {
+    pub(crate) fn begin_flush(flush_guard: &AtomicUsize) {
         if let Err(_) = flush_guard.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
             (0 == old).then_some(usize::MAX)
         }) {
@@ -76,7 +77,7 @@ impl Crust {
         }
     }
 
-    pub(crate) fn end_write(flush_guard: &AtomicUsize) {
+    pub(crate) fn end_flush(flush_guard: &AtomicUsize) {
         if let Err(_) = flush_guard.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
             (old == usize::MAX).then_some(0)
         }) {
@@ -91,11 +92,10 @@ impl Crust {
         ret
     }
 
-    pub(crate) fn mantle_mut<R>(&self, func: impl FnOnce(&mut Mantle) -> R) -> R {
-        Self::begin_write(&self.flush_guard);
-        let ret = func(unsafe { self.mantle.get().as_mut().unwrap() });
-        Self::end_write(&self.flush_guard);
-        ret
+    pub(crate) fn flush(&self) {
+        Self::begin_flush(&self.flush_guard);
+        unsafe { self.mantle.get().as_mut().unwrap().flush() };
+        Self::end_flush(&self.flush_guard);
     }
 }
 
@@ -117,17 +117,17 @@ impl World {
         world
     }
 
-    pub fn entity(&self, entity: Entity) -> View<'_> {
+    pub fn entity(&self, entity: Entity) -> View {
         self.get_entity(entity).unwrap()
     }
 
-    pub fn get_entity(&self, entity: Entity) -> Option<View<'_>> {
-        self.crust
-            .mantle(|mantle| mantle.core.entity_location_locking(entity))
-            .map(|_| View { entity, world: &self })
+    pub fn get_entity(&self, entity: Entity) -> Option<View> {
+        self.crust.mantle(|mantle| {
+            mantle.core.entity_location_locking(entity).map(|_| View { entity, world: &self })
+        })
     }
 
-    pub fn spawn(&self) -> View<'_> {
+    pub fn spawn(&self) -> View {
         self.crust.mantle(|mantle| {
             let entity = mantle.core.create_uninitialized_entity();
             mantle.enqueue(Command::spawn(entity));
@@ -147,9 +147,7 @@ impl World {
     /// - Attempted while something is reading (query, observer, system, etc.)
     /// - There are lingering column guards on locations being moved
     pub fn flush(&self) {
-        self.crust.mantle_mut(|mantle| {
-            mantle.flush();
-        });
+        self.crust.flush();
     }
 }
 
@@ -249,6 +247,15 @@ mod tests {
         world.flush();
         assert_eq!(false, e.has(RefCounted::id()));
         assert_eq!(1, Arc::strong_count(&val));
+    }
+
+    #[test]
+    fn flush() {
+        let world = World::new();
+        let e = world.spawn().insert(Foo(0));
+        assert!(e.get::<Foo>().is_none());
+        world.flush();
+        assert!(e.get::<Foo>().is_some());
     }
 
     #[test]
