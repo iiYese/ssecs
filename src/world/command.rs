@@ -1,10 +1,9 @@
 use std::mem::{ManuallyDrop, MaybeUninit};
 
 use crate::{
-    archetype::FieldId,
     component::{Component, ComponentInfo},
     entity::Entity,
-    world::core::Core,
+    world::{archetype::FieldId, core::Core},
 };
 
 // TODO: Batching

@@ -11,10 +11,9 @@ new_key_type! { pub struct Entity; }
 
 use crate::{
     NonZstOrPanic,
-    archetype::FieldId,
     component::Component,
     query::AccessTuple,
-    world::{Crust, Mantle, World, command::Command, core::EntityLocation},
+    world::{Crust, Mantle, World, archetype::FieldId, command::Command, core::EntityLocation},
 };
 
 impl Entity {

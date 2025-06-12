@@ -15,6 +15,7 @@ use crate::{
     world::core::EntityLocation,
 };
 
+pub(crate) mod archetype;
 pub(crate) mod command;
 pub(crate) mod core;
 
