@@ -140,7 +140,13 @@ impl<T> Drop for ColumnReadGuard<'_, T> {
     }
 }
 
+/// Sepcify what to do when `Clone` impl is not available for a component.
+/// By default the component is not cloned & only components that can be cloned are cloned.
+#[repr(u8)]
 pub enum DupeOpts {
+    /// Try use `Default` if `Clone` is not available
     OrDefault,
+    /// - `OrPanic` will panic if `Clone` is not available
+    /// - `OrDefault | OrPanic` will panic if both `Clone` & `Default` isn't available
     OrPanic,
 }
