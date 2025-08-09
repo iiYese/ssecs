@@ -1,4 +1,5 @@
 #![allow(clippy::type_complexity)]
+#![allow(clippy::let_unit_value)]
 
 pub mod component;
 pub mod entity;

@@ -1,12 +1,12 @@
 use std::{ops::Deref, sync::atomic::AtomicUsize};
 
-use derive_more::{Deref, From};
+use derive_more::From;
 use parking_lot::MappedRwLockReadGuard;
 
 use crate::slotmap::*;
 
 #[derive(Clone, Copy, Debug, From, PartialEq, Eq)]
-pub struct Entity(pub Key);
+pub struct Entity(pub(crate) Key);
 
 impl From<Entity> for Key {
     fn from(value: Entity) -> Self {
@@ -26,6 +26,8 @@ impl Entity {
         Self(Key::default())
     }
 
+    /// # Safety
+    /// Should never be called manually
     pub unsafe fn from_offset(val: u32) -> Self {
         Self(Key { index: val, generation: 1 })
     }
@@ -73,7 +75,7 @@ impl View<'_> {
     }
 
     /// Will panic if called in the middle of a flush
-    pub fn get<T: Component>(&self) -> Option<ColumnReadGuard<T>> {
+    pub fn get<T: Component>(&self) -> Option<ColumnReadGuard<'_, T>> {
         let _ = T::NON_ZST_OR_PANIC;
         Crust::begin_read(&self.world.crust.flush_guard);
         // SAFETY: World aliasing is temporary
@@ -100,7 +102,7 @@ impl View<'_> {
         todo!()
     }
 
-    pub fn duplicate(&self, options: DupeOpts) -> View {
+    pub fn duplicate(&self, options: DupeOpts) -> View<'_> {
         let destination = self.world.spawn();
         self.duplicate_into(options, destination);
         destination
@@ -133,7 +135,7 @@ impl<'a, T> ColumnReadGuard<'a, T> {
 impl<T> Deref for ColumnReadGuard<'_, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
-        &*self.mapped_guard
+        &self.mapped_guard
     }
 }
 

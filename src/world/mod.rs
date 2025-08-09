@@ -12,7 +12,6 @@ use crate::{
     component::{COMPONENT_ENTRIES, ComponentInfo},
     entity::{Entity, View},
     query::Query,
-    world::core::EntityLocation,
 };
 
 pub(crate) mod archetype;
@@ -31,6 +30,9 @@ pub(crate) struct Crust {
     pub(crate) flush_guard: AtomicUsize, // nothing(0), flush(usize::MAX), blocked(1..usize::MAX)
 }
 
+unsafe impl Send for Crust {}
+unsafe impl Sync for Crust {}
+
 pub(crate) struct Mantle {
     pub(crate) core: Core,
     pub(crate) commands: ThreadLocal<Cell<Vec<Command>>>,
@@ -45,7 +47,7 @@ impl Mantle {
     }
 
     pub(crate) fn flush(&mut self) {
-        for cell in (&mut self.commands).iter_mut() {
+        for cell in self.commands.iter_mut() {
             for command in cell.get_mut().drain(..) {
                 command.apply(&mut self.core);
             }
@@ -53,6 +55,7 @@ impl Mantle {
     }
 }
 
+#[allow(clippy::redundant_pattern_matching)]
 impl Crust {
     pub(crate) fn begin_read(flush_guard: &AtomicUsize) {
         if let Err(_) = flush_guard.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
@@ -101,6 +104,7 @@ impl Crust {
 }
 
 impl World {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let mut world = Self {
             crust: Arc::new(Crust {
@@ -118,21 +122,21 @@ impl World {
         world
     }
 
-    pub fn entity(&self, entity: Entity) -> View {
+    pub fn entity(&self, entity: Entity) -> View<'_> {
         self.get_entity(entity).unwrap()
     }
 
-    pub fn get_entity(&self, entity: Entity) -> Option<View> {
+    pub fn get_entity(&self, entity: Entity) -> Option<View<'_>> {
         self.crust.mantle(|mantle| {
-            mantle.core.entity_location_locking(entity).map(|_| View { entity, world: &self })
+            mantle.core.entity_location_locking(entity).map(|_| View { entity, world: self })
         })
     }
 
-    pub fn spawn(&self) -> View {
+    pub fn spawn(&self) -> View<'_> {
         self.crust.mantle(|mantle| {
             let entity = mantle.core.create_uninitialized_entity();
             mantle.enqueue(Command::spawn(entity));
-            View { entity, world: &self }
+            View { entity, world: self }
         })
     }
 
@@ -153,6 +157,7 @@ impl World {
 }
 
 #[cfg(test)]
+#[allow(clippy::bool_assert_comparison)]
 mod tests {
     use super::*;
     use crate as ssecs;

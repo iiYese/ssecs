@@ -67,6 +67,7 @@ pub unsafe trait Component: Sized {
     }
 }
 
+#[allow(unpredictable_function_pointer_comparisons)]
 #[derive(Clone, Copy, Component, Debug, PartialEq, Eq)]
 pub struct ComponentInfo {
     pub(crate) name: &'static str,
@@ -79,6 +80,8 @@ pub struct ComponentInfo {
 }
 
 impl ComponentInfo {
+    /// # Safety
+    /// Should never be called manually
     pub unsafe fn new(
         name: &'static str,
         align: usize,

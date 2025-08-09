@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{entity::Entity, world::World};
 
 pub trait AccessTuple {

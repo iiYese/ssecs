@@ -44,9 +44,7 @@ impl Command {
     pub(crate) fn apply(self, core: &mut Core) {
         use Operation::*;
         match self.operation {
-            Noop => {
-                return;
-            }
+            Noop => {}
             Spawn(entity) => {
                 core.initialize_entity_location(entity);
             }
