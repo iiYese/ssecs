@@ -1,19 +1,25 @@
 use std::{collections::HashMap, mem::MaybeUninit};
 
 use aligned_vec::{AVec, RuntimeAlign};
-use derive_more::{Deref, DerefMut};
+use derive_more::{Deref, DerefMut, From};
 use parking_lot::RwLock;
-use slotmap::{KeyData, new_key_type};
 use smallvec::SmallVec;
 
-use crate::{component::ComponentInfo, entity::Entity};
+use crate::{component::ComponentInfo, entity::Entity, slotmap::*};
 
-new_key_type! { pub(crate) struct ArchetypeId; }
 const ARCHETYPE_SAO: usize = 8;
+
+#[derive(Clone, Copy, Debug, From, PartialEq, Eq, Hash)]
+pub struct ArchetypeId(pub Key);
 
 impl ArchetypeId {
     pub(crate) fn empty_archetype() -> ArchetypeId {
-        Self(KeyData::from_ffi(1))
+        Self(Key { index: 0, generation: 1 })
+    }
+}
+impl From<ArchetypeId> for Key {
+    fn from(value: ArchetypeId) -> Self {
+        value.0
     }
 }
 
@@ -59,7 +65,7 @@ impl From<Entity> for FieldId {
 impl FieldId {
     // TODO: Check for pairs
     pub(crate) fn as_entity(&self) -> Option<Entity> {
-        Some(Entity::from_ffi(self.0))
+        Some(Entity::from_raw(self.0))
     }
 }
 

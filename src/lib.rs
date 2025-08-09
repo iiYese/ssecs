@@ -1,7 +1,10 @@
-mod component;
-mod entity;
-mod query;
-mod world;
+#![allow(clippy::type_complexity)]
+
+pub mod component;
+pub mod entity;
+pub mod query;
+mod slotmap;
+pub mod world;
 
 trait NonZstOrPanic: Sized {
     #[allow(missing_docs)]

@@ -3,8 +3,6 @@ use std::{
     mem::{ManuallyDrop, MaybeUninit},
 };
 
-use linkme;
-
 use crate::{self as ssecs, entity::Entity, world::World};
 use ssecs_macros::*;
 
@@ -13,6 +11,7 @@ pub type ComponentEntry = fn(world: &World);
 #[linkme::distributed_slice]
 pub static COMPONENT_ENTRIES: [ComponentEntry];
 
+/// # Safety
 /// Should never be implemented manually
 pub unsafe trait Component: Sized {
     fn id() -> Entity;
@@ -62,6 +61,7 @@ pub unsafe trait Component: Sized {
         DefaultGetter::<Self>::get_default()
     }
 
+    #[allow(clippy::missing_safety_doc)]
     unsafe fn erased_drop(bytes: &mut [std::mem::MaybeUninit<u8>]) {
         unsafe { (bytes.as_ptr() as *mut Self).drop_in_place() }
     }

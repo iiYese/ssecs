@@ -21,11 +21,11 @@ pub fn component_derive(input: TokenStream) -> TokenStream {
             fn id() -> ssecs::entity::Entity {
                 #[linkme::distributed_slice(ssecs::component::COMPONENT_ENTRIES)]
                 static ENTRY: ssecs::component::ComponentEntry = #struct_name::init;
-                let begin = ssecs::component::COMPONENT_ENTRIES[..].as_ptr() as u64;
-                let end = &raw const ENTRY as u64;
+                let begin = ssecs::component::COMPONENT_ENTRIES[..].as_ptr() as u32;
+                let end = &raw const ENTRY as u32;
                 unsafe {
                     ssecs::entity::Entity::from_offset(
-                        (end - begin) / size_of::<ssecs::component::ComponentEntry>() as u64,
+                        (end - begin) / size_of::<ssecs::component::ComponentEntry>() as u32,
                     )
                 }
             }

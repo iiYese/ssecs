@@ -2,11 +2,11 @@ use std::{collections::HashMap, mem::MaybeUninit};
 
 use derive_more::{Deref, DerefMut};
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
-use slotmap::SlotMap;
 
 use crate::{
     component::{COMPONENT_ENTRIES, Component, ComponentInfo},
     entity::Entity,
+    slotmap::*,
     world::archetype::{
         Archetype, ArchetypeEdge, ArchetypeId, Column, ColumnIndex, FieldId, RowIndex, Signature,
     },
@@ -27,7 +27,6 @@ impl EntityLocation {
 #[derive(Deref, DerefMut, Default, Debug)]
 pub(crate) struct FieldLocations(HashMap<ArchetypeId, ColumnIndex>);
 
-#[derive(Debug)]
 pub(crate) struct Core {
     // Add read_index: SlotMap<Entity, EntityLocation> (a copy of entity_index) if this is too slow
     entity_index: Mutex<SlotMap<Entity, EntityLocation>>,
@@ -39,8 +38,8 @@ pub(crate) struct Core {
 impl Core {
     pub fn new() -> Self {
         // Add empty archetype & component info archetype
-        let mut archetypes = SlotMap::<ArchetypeId, Archetype>::with_key();
-        let mut entity_index = SlotMap::<Entity, EntityLocation>::with_key();
+        let mut archetypes = SlotMap::<ArchetypeId, Archetype>::default();
+        let mut entity_index = SlotMap::<Entity, EntityLocation>::default();
         let empty_archetype_id = archetypes.insert(Archetype::default());
         let component_info_archetype_id = archetypes.insert(Archetype::default());
         assert_eq!(empty_archetype_id, ArchetypeId::empty_archetype());
@@ -102,7 +101,7 @@ impl Core {
         let entity_index = self.entity_index.get_mut();
         let [old_archetype, new_archetype] = self //
             .archetypes
-            .get_disjoint_mut([old_location.archetype, destination_id])
+            .disjoint([old_location.archetype, destination_id])
             .unwrap();
 
         // Move entity entry from old archetype to new archetype
@@ -202,7 +201,7 @@ impl Core {
     ) -> Option<ComponentInfo> {
         field_index
             .get(&ComponentInfo::id().into())
-            .zip(entity_index.get_ignore_gen(component))
+            .zip(entity_index.get_ignore_generation(component))
             .and_then(|(field_locations, component_location)| {
                 let column = archetypes
                     .get(component_location.archetype)?
@@ -237,11 +236,11 @@ impl Core {
     }
 
     /// Get a component from an entity as type erased bytes
-    pub(crate) fn get_bytes(
-        &self,
+    pub(crate) fn get_bytes<'a>(
+        &'a self,
         field: FieldId,
         entity_location: EntityLocation,
-    ) -> Option<MappedRwLockReadGuard<[MaybeUninit<u8>]>> {
+    ) -> Option<MappedRwLockReadGuard<'a, [MaybeUninit<u8>]>> {
         self.field_index.get(&field).and_then(|field_locations| {
             let column = self
                 .archetypes
@@ -331,12 +330,12 @@ impl Core {
         // Find destination
         let destination = if let Some(edge) = current_archetype //
             .edges
-            .get(&field.into())
+            .get(&field)
             .and_then(|edge| edge.remove)
         {
             edge
         } else {
-            self.create_archetype(current_archetype.signature.clone().without(field.into()))
+            self.create_archetype(current_archetype.signature.clone().without(field))
         };
 
         // SAFETY: Should only ever drop components

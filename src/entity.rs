@@ -1,37 +1,41 @@
-use std::{
-    cell::Cell,
-    ops::{Deref, DerefMut},
-    sync::atomic::AtomicUsize,
-};
+use std::{ops::Deref, sync::atomic::AtomicUsize};
 
+use derive_more::{Deref, From};
 use parking_lot::MappedRwLockReadGuard;
-use slotmap::{KeyData, new_key_type};
 
-new_key_type! { pub struct Entity; }
+use crate::slotmap::*;
+
+#[derive(Clone, Copy, Debug, From, PartialEq, Eq)]
+pub struct Entity(pub Key);
+
+impl From<Entity> for Key {
+    fn from(value: Entity) -> Self {
+        value.0
+    }
+}
 
 use crate::{
     NonZstOrPanic,
     component::Component,
     query::AccessTuple,
-    world::{Crust, Mantle, World, archetype::FieldId, command::Command, core::EntityLocation},
+    world::{Crust, Mantle, World, archetype::FieldId, command::Command},
 };
 
 impl Entity {
     pub fn null() -> Self {
-        Self::default()
+        Self(Key::default())
     }
 
-    pub unsafe fn from_offset(val: u64) -> Self {
-        // Slotmap IDs start from 1
-        Self(KeyData::from_ffi(1 + val))
+    pub unsafe fn from_offset(val: u32) -> Self {
+        Self(Key { index: val, generation: 1 })
     }
 
     pub fn raw(self) -> u64 {
-        self.0.as_ffi()
+        self.0.raw()
     }
 
-    pub(crate) fn from_ffi(val: u64) -> Self {
-        Self(KeyData::from_ffi(val))
+    pub(crate) fn from_raw(val: u64) -> Self {
+        Self(Key::from_raw(val))
     }
 }
 
