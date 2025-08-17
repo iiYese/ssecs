@@ -122,6 +122,19 @@ pub struct ComponentInfo {
     pub on_remove: Option<fn(View<'_>)>,
 }
 
+pub mod traits {
+    use super::*;
+
+    #[derive(Component)]
+    pub struct With;
+
+    impl With {
+        pub fn defaulted<T: Component + Default>() -> (Entity, Entity) {
+            (Self::id(), T::id())
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
