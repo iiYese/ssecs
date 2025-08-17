@@ -177,7 +177,7 @@ impl Column {
     }
 
     pub fn move_into(&mut self, other: &mut Self, RowIndex(row): RowIndex) {
-        debug_assert_eq!(self.info, other.info);
+        debug_assert_eq!(self.info.id, other.info.id);
         if self.info.size == 0 {
             return;
         }

@@ -36,15 +36,17 @@ pub fn component_derive(input: TokenStream) -> TokenStream {
 
             fn info() -> ssecs::component::ComponentInfo {
                 unsafe {
-                    ssecs::component::ComponentInfo::new(
-                        std::any::type_name::<#struct_name>(),
-                        std::mem::align_of::<#struct_name>(),
-                        std::mem::size_of::<#struct_name>(),
-                        #struct_name::id(),
-                        #struct_name::get_erased_clone(),
-                        #struct_name::get_erased_default(),
-                        #struct_name::erased_drop,
-                    )
+                    ssecs::component::ComponentInfo {
+                        name: std::any::type_name::<#struct_name>(),
+                        align: std::mem::align_of::<#struct_name>(),
+                        size: std::mem::size_of::<#struct_name>(),
+                        id: #struct_name::id(),
+                        clone: #struct_name::get_erased_clone(),
+                        default: #struct_name::get_erased_default(),
+                        drop: #struct_name::erased_drop,
+                        on_insert: #struct_name::get_on_insert(),
+                        on_remove: #struct_name::get_on_remove(),
+                    }
                 }
             }
         }

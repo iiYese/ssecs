@@ -3,7 +3,7 @@ use std::{
     mem::{ManuallyDrop, MaybeUninit},
 };
 
-use crate::{self as ssecs, entity::Entity, world::World};
+use crate::{self as ssecs, entity::Entity, entity::View, world::World};
 use ssecs_macros::*;
 
 pub type ComponentEntry = fn(world: &World);
@@ -19,10 +19,10 @@ pub unsafe trait Component: Sized {
     fn info() -> ComponentInfo;
 
     fn get_erased_clone() -> Option<unsafe fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]> {
-        struct CloneGetter<T>(PhantomData<T>);
-        impl<T: Clone> CloneGetter<T> {
+        struct Getter<T>(PhantomData<T>);
+        impl<T: Clone> Getter<T> {
             #[allow(dead_code)]
-            fn get_clone() -> Option<unsafe fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]> {
+            fn get() -> Option<unsafe fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]> {
                 Some(|bytes| unsafe {
                     let t = (bytes.as_ptr() as *const T).as_ref().unwrap();
                     let leaked = ManuallyDrop::new(t.clone());
@@ -30,20 +30,20 @@ pub unsafe trait Component: Sized {
                 })
             }
         }
-        trait NoClone<T> {
-            fn get_clone() -> Option<unsafe fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]> {
+        trait NoImpl<T> {
+            fn get() -> Option<unsafe fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]> {
                 None
             }
         }
-        impl<T> NoClone<T> for CloneGetter<T> {}
-        CloneGetter::<Self>::get_clone()
+        impl<T> NoImpl<T> for Getter<T> {}
+        Getter::<Self>::get()
     }
 
     fn get_erased_default() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
-        struct DefaultGetter<T>(PhantomData<T>);
-        impl<T: Default> DefaultGetter<T> {
+        struct Getter<T>(PhantomData<T>);
+        impl<T: Default> Getter<T> {
             #[allow(dead_code)]
-            fn get_default() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
+            fn get() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
                 Some(|| {
                     let leaked = ManuallyDrop::new(T::default());
                     unsafe {
@@ -52,47 +52,74 @@ pub unsafe trait Component: Sized {
                 })
             }
         }
-        trait NoDefault<T> {
-            fn get_default() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
+        trait NoImpl<T> {
+            fn get() -> Option<fn() -> &'static [MaybeUninit<u8>]> {
                 None
             }
         }
-        impl<T> NoDefault<T> for DefaultGetter<T> {}
-        DefaultGetter::<Self>::get_default()
+        impl<T> NoImpl<T> for Getter<T> {}
+        Getter::<Self>::get()
     }
 
     #[allow(clippy::missing_safety_doc)]
     unsafe fn erased_drop(bytes: &mut [std::mem::MaybeUninit<u8>]) {
         unsafe { (bytes.as_ptr() as *mut Self).drop_in_place() }
     }
-}
 
-#[allow(unpredictable_function_pointer_comparisons)]
-#[derive(Clone, Copy, Component, Debug, PartialEq, Eq)]
-pub struct ComponentInfo {
-    pub(crate) name: &'static str,
-    pub(crate) align: usize,
-    pub(crate) size: usize,
-    pub(crate) id: Entity,
-    pub(crate) clone: Option<unsafe fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]>,
-    pub(crate) default: Option<fn() -> &'static [MaybeUninit<u8>]>,
-    pub(crate) drop: unsafe fn(&mut [MaybeUninit<u8>]),
-}
-
-impl ComponentInfo {
-    /// # Safety
-    /// Should never be called manually
-    pub unsafe fn new(
-        name: &'static str,
-        align: usize,
-        size: usize,
-        id: Entity,
-        clone: Option<unsafe fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]>,
-        default: Option<fn() -> &'static [MaybeUninit<u8>]>,
-        drop: unsafe fn(&mut [MaybeUninit<u8>]),
-    ) -> Self {
-        Self { name, align, size, id, clone, default, drop }
+    fn get_on_insert() -> Option<fn(View<'_>)> {
+        struct Getter<T>(PhantomData<T>);
+        impl<T: OnInsert> Getter<T> {
+            #[allow(dead_code)]
+            fn get() -> Option<fn(View<'_>)> {
+                Some(T::on_insert)
+            }
+        }
+        trait NoImpl<T> {
+            fn get() -> Option<fn(View<'_>)> {
+                None
+            }
+        }
+        impl<T> NoImpl<T> for Getter<T> {}
+        Getter::<Self>::get()
     }
+
+    fn get_on_remove() -> Option<fn(View<'_>)> {
+        struct Getter<T>(PhantomData<T>);
+        impl<T: OnRemove> Getter<T> {
+            #[allow(dead_code)]
+            fn get() -> Option<fn(View<'_>)> {
+                Some(T::on_remove)
+            }
+        }
+        trait NoImpl<T> {
+            fn get() -> Option<fn(View<'_>)> {
+                None
+            }
+        }
+        impl<T> NoImpl<T> for Getter<T> {}
+        Getter::<Self>::get()
+    }
+}
+
+pub trait OnInsert {
+    fn on_insert(entity: View<'_>);
+}
+
+pub trait OnRemove {
+    fn on_remove(entity: View<'_>);
+}
+
+#[derive(Clone, Copy, Component, Debug)]
+pub struct ComponentInfo {
+    pub name: &'static str,
+    pub align: usize,
+    pub size: usize,
+    pub id: Entity,
+    pub clone: Option<unsafe fn(&[MaybeUninit<u8>]) -> &'static [MaybeUninit<u8>]>,
+    pub default: Option<fn() -> &'static [MaybeUninit<u8>]>,
+    pub drop: unsafe fn(&mut [MaybeUninit<u8>]),
+    pub on_insert: Option<fn(View<'_>)>,
+    pub on_remove: Option<fn(View<'_>)>,
 }
 
 #[cfg(test)]

@@ -186,7 +186,10 @@ mod tests {
             Foo::info(),
             Bar::info(),
         ] {
-            assert_eq!(world.component_info(info.id), Some(info));
+            assert_eq!(
+                world.component_info(info.id).map(|info| info.id),
+                Some(info.id)
+            );
         }
     }
 
