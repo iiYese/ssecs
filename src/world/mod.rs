@@ -57,7 +57,7 @@ impl Mantle {
 
 #[allow(clippy::redundant_pattern_matching)]
 impl Crust {
-    pub(crate) fn begin_read(flush_guard: &AtomicUsize) {
+    pub(crate) fn begin_access(flush_guard: &AtomicUsize) {
         if let Err(_) = flush_guard.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
             (old < usize::MAX).then_some(old + 1)
         }) {
@@ -65,7 +65,7 @@ impl Crust {
         }
     }
 
-    pub(crate) fn end_read(flush_guard: &AtomicUsize) {
+    pub(crate) fn end_access(flush_guard: &AtomicUsize) {
         if let Err(_) = flush_guard.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
             (0 < old && old < usize::MAX).then_some(old - 1)
         }) {
@@ -90,9 +90,9 @@ impl Crust {
     }
 
     pub(crate) fn mantle<R>(&self, func: impl FnOnce(&Mantle) -> R) -> R {
-        Self::begin_read(&self.flush_guard);
+        Self::begin_access(&self.flush_guard);
         let ret = func(unsafe { self.mantle.get().as_ref().unwrap() });
-        Self::end_read(&self.flush_guard);
+        Self::end_access(&self.flush_guard);
         ret
     }
 

@@ -123,7 +123,7 @@ pub struct ComponentInfo {
 }
 
 pub mod traits {
-    use super::*;
+    use crate::{self as ssecs, component::Component, entity::Entity};
 
     #[derive(Component)]
     pub struct With;

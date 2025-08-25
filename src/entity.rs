@@ -77,7 +77,7 @@ impl View<'_> {
     /// Will panic if called in the middle of a flush
     pub fn get<T: Component>(&self) -> Option<ColumnReadGuard<'_, T>> {
         let _ = T::NON_ZST_OR_PANIC;
-        Crust::begin_read(&self.world.crust.flush_guard);
+        Crust::begin_access(&self.world.crust.flush_guard);
         // SAFETY: World aliasing is temporary
         let core = unsafe { &self.world.crust.mantle.get().as_ref().unwrap().core };
         let location = core.entity_location_locking(self.entity).unwrap();
@@ -90,7 +90,7 @@ impl View<'_> {
                 &self.world.crust.flush_guard,
             )
         });
-        Crust::end_read(&self.world.crust.flush_guard);
+        Crust::end_access(&self.world.crust.flush_guard);
         out
     }
 
@@ -127,7 +127,7 @@ impl<'a, T> ColumnReadGuard<'a, T> {
         mapped_guard: MappedRwLockReadGuard<'a, T>,
         flush_guard: &AtomicUsize,
     ) -> Self {
-        Crust::begin_read(flush_guard);
+        Crust::begin_access(flush_guard);
         Self { mapped_guard, flush_guard }
     }
 }
@@ -142,7 +142,7 @@ impl<T> Deref for ColumnReadGuard<'_, T> {
 impl<T> Drop for ColumnReadGuard<'_, T> {
     fn drop(&mut self) {
         // SAFETY: Always safe because atomic
-        Crust::end_read(unsafe { self.flush_guard.as_ref().unwrap() });
+        Crust::end_access(unsafe { self.flush_guard.as_ref().unwrap() });
     }
 }
 
