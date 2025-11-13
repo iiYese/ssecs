@@ -11,7 +11,7 @@ use thread_local::ThreadLocal;
 use crate::{
     component::{COMPONENT_ENTRIES, ComponentInfo},
     entity::{Entity, View},
-    query::Query,
+    query::QueryBuilder,
 };
 
 pub(crate) mod archetype;
@@ -144,8 +144,8 @@ impl World {
         self.crust.mantle(|mantle| mantle.core.component_info_locking(component))
     }
 
-    pub fn query(&self) -> Query {
-        Query::new(World { crust: self.crust.clone() })
+    pub fn query(&self) -> QueryBuilder {
+        QueryBuilder::new(World { crust: self.crust.clone() })
     }
 
     /// Will panic if:

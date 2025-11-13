@@ -26,6 +26,10 @@ impl Entity {
         Self(Key::default())
     }
 
+    pub fn is_null(self) -> bool {
+        self == Self::null()
+    }
+
     /// # Safety
     /// Should never be called manually
     pub unsafe fn from_offset(val: u32) -> Self {
