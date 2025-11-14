@@ -162,6 +162,10 @@ impl Column {
         &self.buffer[row * self.info.size..][..self.info.size]
     }
 
+    pub fn get_chunk_mut(&mut self, RowIndex(row): RowIndex) -> &mut [MaybeUninit<u8>] {
+        &mut self.buffer[row * self.info.size..][..self.info.size]
+    }
+
     pub unsafe fn write_into(&mut self, RowIndex(row): RowIndex, bytes: &[MaybeUninit<u8>]) {
         debug_assert_eq!(bytes.len(), self.info.size);
         if self.info.size == 0 {

@@ -1,7 +1,9 @@
 use std::{collections::HashMap, mem::MaybeUninit};
 
 use derive_more::{Deref, DerefMut};
-use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
+use parking_lot::{
+    MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard,
+};
 
 use crate::{
     component::{COMPONENT_ENTRIES, Component, ComponentInfo},
@@ -250,6 +252,25 @@ impl Core {
                 .read();
             Some(RwLockReadGuard::map(column, |column| {
                 column.get_chunk(entity_location.row)
+            }))
+        })
+    }
+
+    /// Get a component from an entity as type erased bytes
+    pub(crate) fn get_bytes_mut<'a>(
+        &'a self,
+        field: FieldId,
+        entity_location: EntityLocation,
+    ) -> Option<MappedRwLockWriteGuard<'a, [MaybeUninit<u8>]>> {
+        self.field_index.get(&field).and_then(|field_locations| {
+            let column = self
+                .archetypes
+                .get(entity_location.archetype)?
+                .columns
+                .get(**field_locations.get(&entity_location.archetype)?)?
+                .write();
+            Some(RwLockWriteGuard::map(column, |column| {
+                column.get_chunk_mut(entity_location.row)
             }))
         })
     }

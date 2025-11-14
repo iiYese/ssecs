@@ -1,123 +1,122 @@
 use crate as ssecs;
-use crate::{entity::Entity, world::World};
+use crate::{
+    component::Component,
+    entity::{Entity, View},
+    world::World,
+};
 use ssecs_macros::*;
 
 pub trait AccessTuple {
     type Out;
 }
 
-#[derive(Clone, Copy)]
-enum Pattern {
-    Read(u64),
-    Write(u64),
-    Match(u64),
-    Exclude(u64),
+#[derive(Clone, Copy, Default)]
+pub enum Access {
+    #[default]
+    Noop,
+    Include,
+    Exclude,
+    Read,
+    Write,
 }
 
-#[derive(Clone, Copy)]
-pub struct Term {
-    src: u16,
-    pattern: Pattern,
-}
-
-impl From<Entity> for Term {
-    fn from(e: Entity) -> Term {
-        Term { src: 0, pattern: Pattern::Match(e.raw()) }
+impl Access {
+    fn is_noop(self) -> bool {
+        matches!(self, Self::Noop)
     }
 }
 
-impl From<&'_ Entity> for Term {
-    fn from(e: &Entity) -> Term {
-        Term { src: 0, pattern: Pattern::Read(e.raw()) }
-    }
+#[derive(Clone)]
+struct Term {
+    field: u64,
+    access: Access,
 }
 
-impl From<&'_ mut Entity> for Term {
-    fn from(e: &mut Entity) -> Term {
-        Term { src: 0, pattern: Pattern::Write(e.raw()) }
+impl Default for Term {
+    fn default() -> Self {
+        Self { field: 0, access: Access::Noop }
     }
-}
-
-pub fn excl<T>(t: T) -> Term
-where
-    Term: From<T>,
-{
-    let mut term = Term::from(t);
-    term.pattern = match term.pattern {
-        Pattern::Read(id) => Pattern::Exclude(id),
-        Pattern::Write(id) => Pattern::Exclude(id),
-        Pattern::Match(id) => Pattern::Exclude(id),
-        Pattern::Exclude(id) => Pattern::Exclude(id),
-    };
-    term
 }
 
 #[derive(Component)]
-pub struct QueryState {
+struct QueryState {
     // TODO
 }
 
 pub struct Query {
     world: World,
-    cache: Entity,
     terms: Vec<Term>,
-    variables: Vec<&'static str>,
 }
 
 trait QueryClosure {
-    fn run(self, state: &QueryState);
+    fn run(self, query: &Query, state: &QueryState);
+}
+
+impl<F: FnMut(View<'_>)> QueryClosure for F {
+    fn run(self, query: &Query, state: &QueryState) {}
 }
 
 impl Query {
     fn run<F: QueryClosure>(&self, func: F) {
-        if self.cache.is_null() {
-            let entity = self.world.entity(self.cache);
-            let cache = entity.get::<QueryState>().unwrap();
-            func.run(&cache);
-        } else {
-            let cache = QueryState {}; // TODO
-            func.run(&cache);
-        };
+        let cache = QueryState {}; // TODO
+        func.run(self, &cache);
     }
 }
 
 impl Clone for Query {
     fn clone(&self) -> Self {
-        Self {
-            cache: self.cache,
-            terms: self.terms.clone(),
-            world: World { crust: self.world.crust.clone() },
-            variables: self.variables.clone(),
-        }
+        Self { terms: self.terms.clone(), world: World { crust: self.world.crust.clone() } }
     }
 }
 
 pub struct QueryBuilder {
     query: Query,
+    cursor: usize,
 }
 
 impl QueryBuilder {
     pub(crate) fn new(world: World) -> Self {
-        Self {
-            query: Query {
-                world,
-                terms: Vec::new(),
-                cache: Entity::null(), // Uncached by default
-                variables: Vec::new(),
-            },
-        }
+        Self { cursor: 0, query: Query { world, terms: Vec::new() } }
     }
 
-    pub fn cached(mut self) -> Self {
-        self.query.cache = self.query.world.spawn().id();
+    pub fn term(mut self) -> Self {
+        self.query.terms.push(Term::default());
         self
     }
 
-    pub fn term<T>(mut self, term: T) -> Self
-    where
-        Term: From<T>,
-    {
-        self.query.terms.push(term.into());
+    pub fn incl(mut self, component: Entity) -> Self {
+        let Some(term) = self.query.terms.last_mut() else {
+            panic!("Must create term before calling `incl`");
+        };
+        term.access = Access::Include;
+        term.field = component.raw();
+        self
+    }
+
+    pub fn excl(mut self, component: Entity) -> Self {
+        let Some(term) = self.query.terms.last_mut() else {
+            panic!("Must create term before calling `excl`");
+        };
+        term.access = Access::Exclude;
+        term.field = component.raw();
+        self
+    }
+
+    pub fn read(mut self, component: Entity) -> Self {
+        let Some(term) = self.query.terms.last_mut() else {
+            panic!("Must create term before calling `read`");
+        };
+        term.access = Access::Read;
+        term.field = component.raw();
+        self
+    }
+
+    pub fn write(mut self, component: Entity) -> Self {
+        let Some(term) = self.query.terms.last_mut() else {
+            panic!("Must create term before calling `write`");
+        };
+        term.access = Access::Write;
+        term.field = component.raw();
         self
     }
 
@@ -131,15 +130,35 @@ mod test {
     use super::*;
     use crate::component::{Component, tests::*};
 
+    #[derive(Component)]
+    struct Byte(u8);
+
+    #[derive(Component)]
+    struct A;
+
+    #[derive(Component)]
+    struct B;
+
     #[test]
-    fn query_compile() {
+    #[rustfmt::skip]
+    fn basic_queries() {
         let world = World::new();
-        let query = world //
+
+        world.spawn().insert(Byte(0));
+        world.spawn().insert(Byte(0)).insert(A);
+        world.spawn().insert(Byte(0)).insert(A);
+        world.spawn().insert(Byte(0)).insert(B);
+        world.spawn().insert(Byte(0)).insert(B);
+        world.spawn().insert(Byte(0)).insert(B);
+
+        world.flush();
+
+        let query = world
             .query()
-            .term(Transform::id())
-            .term(&Transform::id())
-            .term(&mut Transform::id())
-            .term(excl(Transform::id()))
-            .build();
+            .term().incl(Byte::id())
+            .build()
+            .run(|view: View<'_>| {
+                view.get_mut::<Byte>().unwrap().0 += 1;
+            });
     }
 }

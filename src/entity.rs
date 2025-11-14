@@ -1,7 +1,10 @@
-use std::{ops::Deref, sync::atomic::AtomicUsize};
+use std::{
+    ops::{Deref, DerefMut},
+    sync::atomic::AtomicUsize,
+};
 
 use derive_more::From;
-use parking_lot::MappedRwLockReadGuard;
+use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard};
 
 use crate::slotmap::*;
 
@@ -98,6 +101,26 @@ impl View<'_> {
         out
     }
 
+    /// Will panic if called in the middle of a flush
+    pub fn get_mut<T: Component>(&self) -> Option<ColumnWriteGuard<'_, T>> {
+        let _ = T::NON_ZST_OR_PANIC;
+        Crust::begin_access(&self.world.crust.flush_guard);
+        // SAFETY: World aliasing is temporary
+        let core = unsafe { &self.world.crust.mantle.get().as_ref().unwrap().core };
+        let location = core.entity_location_locking(self.entity).unwrap();
+        let out = core.get_bytes_mut(T::id().into(), location).map(|bytes| {
+            ColumnWriteGuard::new(
+                MappedRwLockWriteGuard::map(bytes, |bytes| {
+                    // SAFETY: Don't TypeId check not needed because Entity id acts as TypeId
+                    unsafe { (bytes.as_ptr() as *mut T).as_mut() }.unwrap()
+                }),
+                &self.world.crust.flush_guard,
+            )
+        });
+        Crust::end_access(&self.world.crust.flush_guard);
+        out
+    }
+
     pub fn fields<Q: AccessTuple>(&self) -> Q::Out {
         todo!()
     }
@@ -144,6 +167,41 @@ impl<T> Deref for ColumnReadGuard<'_, T> {
 }
 
 impl<T> Drop for ColumnReadGuard<'_, T> {
+    fn drop(&mut self) {
+        // SAFETY: Always safe because atomic
+        Crust::end_access(unsafe { self.flush_guard.as_ref().unwrap() });
+    }
+}
+
+pub struct ColumnWriteGuard<'a, T> {
+    mapped_guard: MappedRwLockWriteGuard<'a, T>,
+    flush_guard: *const AtomicUsize,
+}
+
+impl<'a, T> ColumnWriteGuard<'a, T> {
+    pub(crate) fn new(
+        mapped_guard: MappedRwLockWriteGuard<'a, T>,
+        flush_guard: &AtomicUsize,
+    ) -> Self {
+        Crust::begin_access(flush_guard);
+        Self { mapped_guard, flush_guard }
+    }
+}
+
+impl<T> Deref for ColumnWriteGuard<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.mapped_guard
+    }
+}
+
+impl<T> DerefMut for ColumnWriteGuard<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.mapped_guard
+    }
+}
+
+impl<T> Drop for ColumnWriteGuard<'_, T> {
     fn drop(&mut self) {
         // SAFETY: Always safe because atomic
         Crust::end_access(unsafe { self.flush_guard.as_ref().unwrap() });
