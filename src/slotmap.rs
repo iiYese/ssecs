@@ -93,14 +93,24 @@ where
 
     pub fn remove(&mut self, key: K) -> Option<T> {
         let key = Key::from(key);
-        self.slots
+        let removed = self
+            .slots
             .get_mut(key.index as usize)
             .filter(|slot| slot.generation == key.generation)
-            .and_then(|slot| slot.data.take())
+            .and_then(|slot| slot.data.take());
+        if removed.is_some() {
+            self.available.push(key.index as usize);
+        }
+        removed
     }
 
     pub fn remove_ignore_generation(&mut self, key: K) -> Option<T> {
-        self.slots.get_mut(Key::from(key).index as usize).and_then(|slot| slot.data.take())
+        let key = Key::from(key);
+        let removed = self.slots.get_mut(key.index as usize).and_then(|slot| slot.data.take());
+        if removed.is_some() {
+            self.available.push(key.index as usize);
+        }
+        removed
     }
 
     pub fn get(&self, key: K) -> Option<&T> {
